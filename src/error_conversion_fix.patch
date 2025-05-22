@@ -1,9 +1,0 @@
---- /Users/joshkornreich/Documents/Projects/CI/src/main.rs
-+++ /Users/joshkornreich/Documents/Projects/CI/src/main.rs
-@@ -55,7 +55,7 @@
-     // Conversion from legacy Error to errors::CIError
--    impl From<e> for crate::errors::CIError {
-+    impl From<Error> for crate::errors::CIError {
-         fn from(err: Error) -> Self {
-             match err {
-                 Error::ConfigError(s) => crate::errors::CIError::Config(s),

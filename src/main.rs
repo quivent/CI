@@ -129,6 +129,10 @@ enum Commands {
         /// Memory path to load (defaults to standard agent memory)
         #[arg(short, long)]
         path: Option<PathBuf>,
+        
+        /// Automatically launch Claude Code without prompting
+        #[arg(short, long)]
+        yes: bool,
     },
     
     /// List projects integrated with Collaborative Intelligence
@@ -1280,8 +1284,60 @@ async fn main() -> anyhow::Result<()> {
     let config = config::Config::load()
         .context("Failed to load configuration")?;
     
-    // Process commands
-    match cli.command.unwrap() {
+    // Get the command name for window title
+    let command_name = match &cli.command {
+        Some(cmd) => {
+            match cmd {
+                Commands::Intent => "intent",
+                Commands::Agents => "agents", 
+                Commands::Agent { .. } => "agent",
+                Commands::Load { .. } => "load",
+                Commands::Projects => "projects",
+                Commands::Idea { .. } => "idea",
+                Commands::Status => "status",
+                Commands::StatusDetailed { .. } => "status-detailed",
+                Commands::Repo { .. } => "repo",
+                Commands::Clean => "clean",
+                Commands::Ignore => "ignore",
+                Commands::Stage => "stage",
+                Commands::Remotes => "remotes",
+                Commands::Commit { .. } => "commit",
+                Commands::Deploy => "deploy",
+                Commands::Init { .. } => "init",
+                Commands::Integrate { .. } => "integrate",
+                Commands::Fix { .. } => "fix",
+                Commands::Verify { .. } => "verify",
+                Commands::Local { .. } => "local",
+                Commands::Detach { .. } => "detach",
+                Commands::Migrate { .. } => "migrate",
+                Commands::Evolve => "evolve",
+                Commands::Key { .. } => "key",
+                Commands::Rebuild => "rebuild",
+                Commands::Install => "install",
+                Commands::Link => "link",
+                Commands::Unlink => "unlink",
+                Commands::Legacy { .. } => "legacy",
+                Commands::Docs => "docs",
+                Commands::FixWarnings => "fix-warnings",
+                Commands::AddCommand { .. } => "add-command",
+                Commands::Command { .. } => "command",
+                Commands::Version => "version",
+                Commands::Topologist { .. } => "topologist",
+                Commands::Session { .. } => "session",
+                Commands::Visualize { .. } => "visualize",
+                Commands::Ls { .. } => "ls",
+                Commands::Config { .. } => "config",
+            }
+        },
+        None => "help"
+    };
+    
+    // Set window title for the command
+    use crate::helpers::CommandHelpers;
+    CommandHelpers::set_window_title(command_name);
+    
+    // Process commands and ensure title is restored
+    let result = match cli.command.unwrap() {
         // Intelligence & Discovery Commands
         Commands::Intent => {
             commands::intelligence::intent(&config).await
@@ -1292,8 +1348,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Agent { command } => {
             handle_agent_command(&command).await
         },
-        Commands::Load { agent, context, path } => {
-            commands::intelligence::load_agent(&agent, context.as_deref(), path.as_deref(), &config).await
+        Commands::Load { agent, context, path, yes } => {
+            commands::intelligence::load_agent(&agent, context.as_deref(), path.as_deref(), yes, &config).await
         },
         Commands::Projects => {
             commands::intelligence::projects(&config).await
@@ -1473,5 +1529,9 @@ async fn main() -> anyhow::Result<()> {
                 format.as_deref()
             ).await
         },
-    }
+    };
+    
+    // Restore window title and return result
+    CommandHelpers::restore_window_title();
+    result
 }

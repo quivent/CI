@@ -324,6 +324,43 @@ impl CommandHelpers {
     pub fn is_debug() -> bool {
         env::var("CI_DEBUG").unwrap_or_default() == "true"
     }
+    
+    /// Set terminal window title with CI command info
+    pub fn set_window_title(command: &str) {
+        // Debug output
+        if Self::is_debug() {
+            eprintln!("DEBUG: Setting window title to 'CI: {}'", command);
+            eprintln!("DEBUG: Is interactive terminal: {}", atty::is(atty::Stream::Stdout));
+        }
+        
+        // Only set title if we're in an interactive terminal
+        if atty::is(atty::Stream::Stdout) {
+            // OSC sequence to set window title: \x1b]0;title\x07
+            print!("\x1b]0;CI: {}\x07", command);
+            let _ = io::stdout().flush();
+        }
+    }
+    
+    /// Restore original terminal window title
+    pub fn restore_window_title() {
+        // Only restore title if we're in an interactive terminal
+        if atty::is(atty::Stream::Stdout) {
+            // OSC sequence to restore original title
+            print!("\x1b]0;\x07");
+            let _ = io::stdout().flush();
+        }
+    }
+    
+    /// Execute a command with window title override
+    pub fn with_window_title<F, R>(command: &str, f: F) -> R
+    where
+        F: FnOnce() -> R
+    {
+        Self::set_window_title(command);
+        let result = f();
+        Self::restore_window_title();
+        result
+    }
 }
 
 #[cfg(test)]

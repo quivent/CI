@@ -348,7 +348,7 @@ struct AgentSession {
     output_path: Option<String>,
 }
 
-pub async fn load_agent(agent_name: &str, context: Option<&str>, path: Option<&Path>, config: &Config) -> Result<()> {
+pub async fn load_agent(agent_name: &str, context: Option<&str>, path: Option<&Path>, auto_yes: bool, config: &Config) -> Result<()> {
     CommandHelpers::print_command_header(
         &format!("Load agent: {}", agent_name), 
         "🧠", 
@@ -374,12 +374,12 @@ pub async fn load_agent(agent_name: &str, context: Option<&str>, path: Option<&P
     
     // Load agent from direct files if they exist
     if direct_memory_path.exists() {
-        return load_from_direct_files(agent_name, context, direct_memory_path, config).await;
+        return load_from_direct_files(agent_name, context, direct_memory_path, auto_yes, config).await;
     } else if memory_path.exists() {
-        return load_from_direct_files(agent_name, context, memory_path, config).await;
+        return load_from_direct_files(agent_name, context, memory_path, auto_yes, config).await;
     } else if agents_md_path.exists() {
         // Fall back to legacy AGENTS.md loading
-        return load_from_agents_md(agent_name, context, path, config).await;
+        return load_from_agents_md(agent_name, context, path, auto_yes, config).await;
     } else {
         // Neither method is available
         CommandHelpers::print_error("No agent sources found. Neither direct agent files nor AGENTS.md exist.");
@@ -388,7 +388,7 @@ pub async fn load_agent(agent_name: &str, context: Option<&str>, path: Option<&P
 }
 
 /// Load an agent from direct files in the AGENTS directory
-async fn load_from_direct_files(agent_name: &str, context: Option<&str>, memory_file: PathBuf, config: &Config) -> Result<()> {
+async fn load_from_direct_files(agent_name: &str, context: Option<&str>, memory_file: PathBuf, auto_yes: bool, config: &Config) -> Result<()> {
     CommandHelpers::print_info("Loading agent from direct files");
     
     // Determine the agent toolkit path
@@ -496,7 +496,7 @@ async fn load_from_direct_files(agent_name: &str, context: Option<&str>, memory_
     CommandHelpers::print_success(&format!("Agent {} loaded successfully", agent_name));
     
     // Offer launch options
-    if CommandHelpers::prompt_confirmation("Launch Claude Code with this agent now?") {
+    if auto_yes || CommandHelpers::prompt_confirmation("Launch Claude Code with this agent now?") {
         // Check if claude CLI is available
         if has_claude_cli() {
             // Launch Claude Code with the agent
@@ -546,7 +546,7 @@ async fn load_from_direct_files(agent_name: &str, context: Option<&str>, memory_
 }
 
 /// Load agent from the legacy AGENTS.md file
-async fn load_from_agents_md(agent_name: &str, context: Option<&str>, path: Option<&Path>, config: &Config) -> Result<()> {
+async fn load_from_agents_md(agent_name: &str, context: Option<&str>, path: Option<&Path>, auto_yes: bool, config: &Config) -> Result<()> {
     CommandHelpers::print_info("Loading agent from AGENTS.md");
     
     // First check if the agent exists in AGENTS.md
@@ -717,7 +717,7 @@ async fn load_from_agents_md(agent_name: &str, context: Option<&str>, path: Opti
     CommandHelpers::print_success(&format!("Agent {} loaded successfully", agent_name));
     
     // Offer launch options
-    if CommandHelpers::prompt_confirmation("Launch Claude Code with this agent now?") {
+    if auto_yes || CommandHelpers::prompt_confirmation("Launch Claude Code with this agent now?") {
         // Check if claude CLI is available
         if has_claude_cli() {
             // Launch Claude Code with the agent

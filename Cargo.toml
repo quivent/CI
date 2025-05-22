@@ -28,6 +28,7 @@ tempfile = "3.8"
 uuid = { version = "1.4", features = ["v4"] }
 lazy_static = "1.4"
 term_size = "0.3"
+atty = "0.2"
 
 [[bin]]
 name = "CI"

@@ -1,0 +1,344 @@
+//! Command execution and UI helpers for CIR
+//!
+//! This module provides helper functions for command output formatting,
+//! command execution, and standard command operations.
+
+use colored::*;
+use std::path::Path;
+use std::env;
+use std::process::Command;
+use std::io::{self, Write};
+use anyhow::{Result, Context};
+
+/// Helper functions for common CIR command operations and UI
+pub struct CommandHelpers;
+
+impl CommandHelpers {
+    /// Print a standard command header with category and emoji
+    pub fn print_command_header(title: &str, emoji: &str, category: &str, color: &str) {
+        let border = "┌─────────────────────────────────────────────────────────────────┐";
+        let header = format!("│  {}  {}", emoji, category);
+        let bottom = "└─────────────────────────────────────────────────────────────────┘";
+        
+        match color {
+            "cyan" => {
+                println!("{}", border.cyan());
+                println!("{} {}", "│".cyan(), header.cyan().bold());
+                println!("{}", bottom.cyan());
+            },
+            "green" => {
+                println!("{}", border.green());
+                println!("{} {}", "│".green(), header.green().bold());
+                println!("{}", bottom.green());
+            },
+            "yellow" => {
+                println!("{}", border.yellow());
+                println!("{} {}", "│".yellow(), header.yellow().bold());
+                println!("{}", bottom.yellow());
+            },
+            "blue" => {
+                println!("{}", border.blue());
+                println!("{} {}", "│".blue(), header.blue().bold());
+                println!("{}", bottom.blue());
+            },
+            _ => {
+                println!("{}", border);
+                println!("{} {}", "│", header.bold());
+                println!("{}", bottom);
+            }
+        }
+        
+        println!();
+        
+        // Print the title with the same color
+        match color {
+            "cyan" => println!("{}", title.cyan().bold()),
+            "green" => println!("{}", title.green().bold()),
+            "yellow" => println!("{}", title.yellow().bold()),
+            "blue" => println!("{}", title.blue().bold()),
+            _ => println!("{}", title.bold()),
+        }
+        
+        println!();
+    }
+    
+    /// Print a divider line with equals signs
+    pub fn print_divider(color: &str) {
+        let line = "═".repeat(70);
+        match color {
+            "cyan" => println!("{}", line.cyan()),
+            "green" => println!("{}", line.green()),
+            "yellow" => println!("{}", line.yellow()),
+            "blue" => println!("{}", line.blue()),
+            _ => println!("{}", line),
+        }
+        println!();
+    }
+    
+    /// Print a success message with checkmark
+    pub fn print_success(message: &str) {
+        println!("{} {}", "✓".green().bold(), message.green());
+    }
+    
+    /// Print an error message with cross
+    pub fn print_error(message: &str) {
+        eprintln!("{} {}", "✗".red().bold(), message.red());
+    }
+    
+    /// Print a warning message with warning symbol
+    pub fn print_warning(message: &str) {
+        println!("{} {}", "!".yellow().bold(), message.yellow());
+    }
+    
+    /// Print an info message with info symbol
+    pub fn print_info(message: &str) {
+        println!("{} {}", "ℹ".blue().bold(), message.blue());
+    }
+    
+    /// Print a step message with number and total
+    pub fn print_step(step: usize, total: usize, message: &str) {
+        println!("{} {} {}", format!("[{}/{}]", step, total).blue(), "•".yellow(), message);
+        println!("{}", "=".repeat(60).blue());
+    }
+    
+    /// Print a section header with title and underline
+    pub fn print_section(title: &str) {
+        println!("\n{}", title.bold());
+        println!("{}", "-".repeat(title.len()));
+    }
+    
+    /// Print a status message with bullet point
+    pub fn print_status(message: &str) {
+        println!("  • {}", message);
+    }
+    
+    /// Print a status check with green checkmark
+    pub fn print_status_check(message: &str) {
+        println!("{} {}", "✓".green().bold(), message.green());
+    }
+    
+    /// Print a status warning with yellow warning symbol
+    pub fn print_status_warning(message: &str) {
+        println!("{} {}", "⚠".yellow().bold(), message.yellow());
+    }
+    
+    /// Print a status error with red cross symbol
+    pub fn print_status_error(message: &str) {
+        println!("{} {}", "✘".red().bold(), message.red());
+    }
+    
+    /// Print a step message with arrow
+    pub fn print_arrow_step(message: &str) {
+        println!("→ {}", message.cyan());
+    }
+    
+    /// Print a box around text
+    pub fn print_box(message: &str, color: &str) {
+        let width = message.len() + 4;
+        let top = format!("┌{}┐", "─".repeat(width));
+        let middle = format!("│  {}  │", message);
+        let bottom = format!("└{}┘", "─".repeat(width));
+        
+        match color {
+            "cyan" => {
+                println!("{}", top.cyan());
+                println!("{}", middle.cyan());
+                println!("{}", bottom.cyan());
+            },
+            "green" => {
+                println!("{}", top.green());
+                println!("{}", middle.green());
+                println!("{}", bottom.green());
+            },
+            "yellow" => {
+                println!("{}", top.yellow());
+                println!("{}", middle.yellow());
+                println!("{}", bottom.yellow());
+            },
+            "blue" => {
+                println!("{}", top.blue());
+                println!("{}", middle.blue());
+                println!("{}", bottom.blue());
+            },
+            _ => {
+                println!("{}", top);
+                println!("{}", middle);
+                println!("{}", bottom);
+            }
+        }
+    }
+    
+    /// Print a list item with status
+    pub fn print_list_item(message: &str, status: Option<&str>) {
+        print!("• {}", message);
+        
+        if let Some(status) = status {
+            match status {
+                "success" => println!(" {}", "[OK]".green()),
+                "failure" => println!(" {}", "[FAILED]".red()),
+                "warning" => println!(" {}", "[WARNING]".yellow()),
+                "skipped" => println!(" {}", "[SKIPPED]".magenta()),
+                _ => println!(" {}", format!("[{}]", status).cyan()),
+            }
+        } else {
+            println!();
+        }
+    }
+    
+    /// Execute function with spinner/progress indicator
+    pub fn with_progress<F, R>(message: &str, f: F) -> Result<R>
+    where
+        F: FnOnce() -> Result<R>
+    {
+        print!("{}... ", message);
+        io::stdout().flush().unwrap();
+        
+        match f() {
+            Ok(result) => {
+                println!("{}", "✓".green());
+                Ok(result)
+            },
+            Err(e) => {
+                println!("{}", "✗".red());
+                Err(e)
+            }
+        }
+    }
+    
+    /// Run a command and capture output
+    pub fn run_command_with_output(command: &str, args: &[&str], dir: Option<&Path>) -> Result<(bool, String, String)> {
+        let mut cmd = Command::new(command);
+        cmd.args(args);
+        
+        if let Some(path) = dir {
+            cmd.current_dir(path);
+        }
+        
+        let output = cmd.output()
+            .with_context(|| format!("Failed to run {}: {}", command, args.join(" ")))?;
+            
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        
+        Ok((output.status.success(), stdout, stderr))
+    }
+    
+    /// Run a command with progress display and capture output
+    pub async fn run_command_with_progress(
+        command: &str, 
+        args: &[&str], 
+        working_dir: &Path, 
+        message: &str
+    ) -> Result<String> {
+        print!("{}... ", message);
+        io::stdout().flush().unwrap();
+        
+        let output = tokio::process::Command::new(command)
+            .args(args)
+            .current_dir(working_dir)
+            .output()
+            .await
+            .with_context(|| format!("Failed to run command: {} {}", command, args.join(" ")))?;
+        
+        if output.status.success() {
+            println!("{}", "✓".green());
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            println!("{}", "✗".red());
+            let error_message = String::from_utf8_lossy(&output.stderr).to_string();
+            Err(anyhow::anyhow!("Command failed: {}", error_message))
+        }
+    }
+    
+    /// Prompt user for confirmation
+    pub fn prompt_confirmation(message: &str) -> bool {
+        print!("{} (y/n): ", message);
+        io::stdout().flush().unwrap();
+        
+        let mut response = String::new();
+        io::stdin().read_line(&mut response).unwrap();
+        
+        response.trim().to_lowercase() == "y" || response.trim().to_lowercase() == "yes"
+    }
+    
+    /// Prompt user for input with optional default
+    pub fn prompt_input(message: &str, default: Option<&str>) -> Result<String> {
+        if let Some(def) = default {
+            print!("{} [{}]: ", message, def);
+        } else {
+            print!("{}: ", message);
+        }
+        io::stdout().flush().unwrap();
+        
+        let mut response = String::new();
+        io::stdin().read_line(&mut response)
+            .with_context(|| "Failed to read user input")?;
+        
+        let trimmed = response.trim();
+        if trimmed.is_empty() && default.is_some() {
+            Ok(default.unwrap().to_string())
+        } else {
+            Ok(trimmed.to_string())
+        }
+    }
+    
+    /// Format file list for display
+    pub fn format_file_list(files: &[String]) -> String {
+        files.iter()
+            .map(|f| format!("  • {}", f))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    
+    /// Display command help with enhanced formatting
+    pub fn display_enhanced_help(command: &str, description: &str, usage: &str, examples: &[&str]) {
+        println!("{}", command.bold());
+        println!("{}", "=".repeat(command.len()));
+        println!();
+        println!("{}", description);
+        println!();
+        println!("{}", "Usage:".bold());
+        println!("  {}", usage);
+        println!();
+        
+        if !examples.is_empty() {
+            println!("{}", "Examples:".bold());
+            for example in examples {
+                println!("  {}", example);
+            }
+            println!();
+        }
+    }
+    
+    /// Get current timestamp in human-readable format
+    pub fn get_timestamp() -> String {
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    }
+    
+    /// Check if running in verbose mode
+    pub fn is_verbose() -> bool {
+        env::var("CIR_VERBOSE").unwrap_or_default() == "true"
+    }
+    
+    /// Check if running in debug mode
+    pub fn is_debug() -> bool {
+        env::var("CIR_DEBUG").unwrap_or_default() == "true"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_format_file_list() {
+        let files = vec![
+            "file1.rs".to_string(),
+            "file2.rs".to_string(),
+            "file3.rs".to_string(),
+        ];
+        
+        let formatted = CommandHelpers::format_file_list(&files);
+        assert_eq!(formatted, "  • file1.rs\n  • file2.rs\n  • file3.rs");
+    }
+}

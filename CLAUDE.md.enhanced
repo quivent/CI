@@ -1,0 +1,87 @@
+# CIR - Collaborative Intelligence in Rust
+
+CIR is a modern CLI tool for working with the Collaborative Intelligence system, providing a structured interface for agent management, project integration, source control operations, and system management tasks.
+
+## Instant Command Creation
+
+When you type `CIR:[command-name]`, I will:
+
+1. Extract the command name (everything after `CIR:`)
+2. Ask you: "What does '[command-name]' do?"
+3. Auto-categorize the command based on keywords in your description
+4. Generate all necessary code including proper helpers and structure
+5. Update required files (commands/mod.rs, main.rs)
+6. Provide you with the implementation and instructions to build
+
+### Example Usage
+
+```
+User: CIR:backup
+AI: What does 'backup' do?
+User: Create project backups
+AI: [Generates code, updates files]
+Done! Build with: cargo build
+```
+
+### Auto-Categorization Logic
+
+I'll automatically categorize your command based on keywords:
+- Words like "git", "commit", "branch", "merge" → Source Control
+- Words like "config", "setup", "settings" → Project Lifecycle
+- Words like "agent", "load", "memory" → Intelligence & Discovery
+- Words like "install", "build", "system" → System Management
+
+## Instant Agent Loading
+
+When you type `AGENT:[agent-name]`, I will:
+
+1. Extract the agent name (everything after `AGENT:`)
+2. Automatically execute the equivalent of `cir load [agent-name]`
+3. Show the agent's capabilities and memory
+4. No prompting or confirmation required
+
+## Project Behavior
+
+1. Begin implementation of tasks immediately after creating todo items
+2. Prioritize completing tasks in the order they are specified unless otherwise instructed
+3. Make intelligent decisions about task implementation without excessive consultation
+4. Automatically test code changes when possible before marking tasks as complete
+5. Proactively request necessary information if required to complete a task
+
+## Code Style
+
+1. Follow existing code style conventions in the project
+2. Maintain consistent formatting with the rest of the codebase
+3. Add appropriate error handling for all code modifications
+4. Include only necessary comments - focus on clear, self-documenting code
+5. Use the helper infrastructure for common operations
+
+## Command Implementation Guidelines
+
+1. All commands should use the helper modules for common operations
+2. Follow the existing category structure:
+   - Intelligence & Discovery (Blue)
+   - Source Control (Green)
+   - Project Lifecycle (Yellow)
+   - System Management (Cyan)
+3. Use consistent error handling and user messaging
+4. Include proper documentation and examples
+5. Follow Rust best practices and idioms
+
+## Testing Requirements
+
+1. All new commands should have corresponding tests
+2. Use the testing framework in `tests/` directory
+3. Test both success and failure scenarios
+4. Use mock repositories and environments where appropriate
+5. Ensure tests can run in CI environments
+
+## System Integration
+
+CIR is designed to work with the Collaborative Intelligence system while maintaining its own streamlined architecture:
+
+1. Can work independently or integrated with CI
+2. Supports agent loading and management
+3. Provides project lifecycle management
+4. Facilitates source control operations
+5. Handles system configuration

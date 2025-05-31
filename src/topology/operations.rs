@@ -2,7 +2,6 @@
 // Adapted from standalone topologist for CI integration
 
 use std::process::{Command, Stdio};
-use std::collections::HashSet;
 
 pub struct GitOperations {
     // Configuration for git operations

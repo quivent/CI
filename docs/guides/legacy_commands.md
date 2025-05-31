@@ -76,5 +76,4 @@ ci commit -m "My commit message"
 
 ## Further Reading
 
-- [CI Installation Guide](../commands/system/install.md)
-- [System Management Commands](../commands/system/index.md)
+For more information on CI installation and system management, see the main documentation index.

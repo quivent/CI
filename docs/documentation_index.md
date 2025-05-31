@@ -73,4 +73,3 @@ This documentation index provides links to all available documentation for the C
 
 - [README](../README.md) - Project overview and getting started
 - [Style Guide](../STYLE_GUIDE.md) - Code style conventions
-- [Contributing](../CONTRIBUTING.md) - Guidelines for contributors

@@ -5,7 +5,7 @@
 
 pub mod ci_config;
 
-use crate::error::Error;
+use crate::errors::CIError;
 use std::path::PathBuf;
 
 /// Core global configuration for CI
@@ -17,7 +17,7 @@ pub struct Config {
 
 impl Config {
     /// Load the global configuration
-    pub fn load() -> Result<Self, Error> {
+    pub fn load() -> Result<Self, CIError> {
         // Try to get CI path from environment variable
         if let Ok(path) = std::env::var("CI_PATH") {
             let ci_path = PathBuf::from(path);
@@ -41,7 +41,7 @@ impl Config {
             }
         }
         
-        Err(Error::ConfigError("CI repository path not found".to_string()))
+        Err(CIError::Config("CI repository path not found".to_string()))
     }
 }
 

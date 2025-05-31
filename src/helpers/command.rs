@@ -9,6 +9,7 @@ use std::env;
 use std::process::Command;
 use std::io::{self, Write};
 use anyhow::{Result, Context};
+use is_terminal::IsTerminal;
 
 /// Helper functions for common CI command operations and UI
 pub struct CommandHelpers;
@@ -97,8 +98,19 @@ impl CommandHelpers {
     
     /// Print a step message with number and total
     pub fn print_step(step: usize, total: usize, message: &str) {
+        // Update window title with step progress FIRST
+        if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+            let status = format!("Step {}/{}: {}", step, total, message);
+            Self::update_window_title_with_status(&command, &status);
+        }
+        
         println!("{} {} {}", format!("[{}/{}]", step, total).blue(), "•".yellow(), message);
         println!("{}", "=".repeat(60).blue());
+        
+        // Add a small delay to make title changes visible
+        if env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+        }
     }
     
     /// Print a section header with title and underline
@@ -327,27 +339,117 @@ impl CommandHelpers {
     
     /// Set terminal window title with CI command info
     pub fn set_window_title(command: &str) {
-        // Debug output
-        if Self::is_debug() {
+        let is_tty_atty = atty::is(atty::Stream::Stdout);
+        let is_tty_is_terminal = io::stdout().is_terminal();
+        let force_title = env::var("CI_FORCE_WINDOW_TITLE").unwrap_or_default() == "true";
+        
+        // Check for common terminal environments that support OSC sequences
+        let has_term_env = env::var("TERM").is_ok();
+        let in_known_terminal = env::var("TERM_PROGRAM").is_ok() || 
+                               env::var("ITERM_SESSION_ID").is_ok() ||
+                               env::var("TERMINAL_EMULATOR").is_ok();
+        
+        // Debug output (only when specifically debugging window titles)
+        if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
             eprintln!("DEBUG: Setting window title to 'CI: {}'", command);
-            eprintln!("DEBUG: Is interactive terminal: {}", atty::is(atty::Stream::Stdout));
+            eprintln!("DEBUG: Is interactive terminal (atty): {}", is_tty_atty);
+            eprintln!("DEBUG: Is interactive terminal (is-terminal): {}", is_tty_is_terminal);
+            eprintln!("DEBUG: Has TERM env: {}", has_term_env);
+            eprintln!("DEBUG: In known terminal: {}", in_known_terminal);
+            eprintln!("DEBUG: Force window title: {}", force_title);
         }
         
-        // Only set title if we're in an interactive terminal
-        if atty::is(atty::Stream::Stdout) {
+        // Set title if:
+        // 1. We're in an interactive terminal OR
+        // 2. We have terminal environment variables OR  
+        // 3. It's forced via env var
+        if is_tty_atty || is_tty_is_terminal || has_term_env || in_known_terminal || force_title {
             // OSC sequence to set window title: \x1b]0;title\x07
             print!("\x1b]0;CI: {}\x07", command);
             let _ = io::stdout().flush();
+            
+            if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+                eprintln!("DEBUG: Window title escape sequence sent");
+            }
+        } else if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+            eprintln!("DEBUG: Skipping window title (no terminal detection)");
+        }
+    }
+    
+    /// Update window title with status information (state changes)
+    pub fn update_window_title_with_status(command: &str, status: &str) {
+        let is_tty_atty = atty::is(atty::Stream::Stdout);
+        let is_tty_is_terminal = io::stdout().is_terminal();
+        let force_title = env::var("CI_FORCE_WINDOW_TITLE").unwrap_or_default() == "true";
+        
+        // Check for common terminal environments that support OSC sequences
+        let has_term_env = env::var("TERM").is_ok();
+        let in_known_terminal = env::var("TERM_PROGRAM").is_ok() || 
+                               env::var("ITERM_SESSION_ID").is_ok() ||
+                               env::var("TERMINAL_EMULATOR").is_ok();
+        
+        // Set title if terminal supports it
+        if is_tty_atty || is_tty_is_terminal || has_term_env || in_known_terminal || force_title {
+            // OSC sequence to set window title: \x1b]0;title\x07
+            print!("\x1b]0;CI: {} - {}\x07", command, status);
+            let _ = io::stdout().flush();
+            
+            if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+                eprintln!("DEBUG: Window title updated to 'CI: {} - {}'", command, status);
+            }
         }
     }
     
     /// Restore original terminal window title
     pub fn restore_window_title() {
-        // Only restore title if we're in an interactive terminal
-        if atty::is(atty::Stream::Stdout) {
-            // OSC sequence to restore original title
-            print!("\x1b]0;\x07");
+        let is_tty_atty = atty::is(atty::Stream::Stdout);
+        let is_tty_is_terminal = io::stdout().is_terminal();
+        let force_title = env::var("CI_FORCE_WINDOW_TITLE").unwrap_or_default() == "true";
+        
+        // Check for common terminal environments that support OSC sequences
+        let has_term_env = env::var("TERM").is_ok();
+        let in_known_terminal = env::var("TERM_PROGRAM").is_ok() || 
+                               env::var("ITERM_SESSION_ID").is_ok() ||
+                               env::var("TERMINAL_EMULATOR").is_ok();
+        
+        // Check if Claude Code or other Node processes might override the title
+        let claude_detected = env::var("CLAUDE_SESSION_ID").is_ok() ||
+                              env::var("CLAUDE_CLI").is_ok() ||
+                              std::process::Command::new("pgrep")
+                                  .args(&["-f", "claude.*code"])
+                                  .output()
+                                  .map(|output| !output.stdout.is_empty())
+                                  .unwrap_or(false);
+        
+        // Debug output (only when specifically debugging window titles)
+        if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+            eprintln!("DEBUG: Restoring window title");
+            eprintln!("DEBUG: Is interactive terminal (atty): {}", is_tty_atty);
+            eprintln!("DEBUG: Is interactive terminal (is-terminal): {}", is_tty_is_terminal);
+            eprintln!("DEBUG: Has TERM env: {}", has_term_env);
+            eprintln!("DEBUG: In known terminal: {}", in_known_terminal);
+            eprintln!("DEBUG: Force window title: {}", force_title);
+            eprintln!("DEBUG: Claude Code detected: {}", claude_detected);
+        }
+        
+        // Restore title using same logic as set_window_title
+        if is_tty_atty || is_tty_is_terminal || has_term_env || in_known_terminal || force_title {
+            if claude_detected {
+                // Don't restore to blank when Claude Code is running - set a meaningful title instead
+                print!("\x1b]0;CI - Command Complete\x07");
+                if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+                    eprintln!("DEBUG: Window title set to 'CI - Command Complete' (Claude Code detected)");
+                }
+            } else {
+                // OSC sequence to restore original title
+                print!("\x1b]0;\x07");
+                if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+                    eprintln!("DEBUG: Window title restore sequence sent");
+                }
+            }
             let _ = io::stdout().flush();
+        } else if Self::is_debug() && env::var("CI_DEBUG_WINDOW_TITLE").is_ok() {
+            eprintln!("DEBUG: Skipping window title restore (no terminal detection)");
         }
     }
     
@@ -360,6 +462,56 @@ impl CommandHelpers {
         let result = f();
         Self::restore_window_title();
         result
+    }
+    
+    /// Update window title for common status messages
+    pub fn update_title_for_status(status: &str) {
+        if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+            Self::update_window_title_with_status(&command, status);
+        }
+    }
+    
+    /// Print status message and update window title
+    pub fn print_status_with_title(message: &str) {
+        Self::print_status(message);
+        Self::update_title_for_status(message);
+    }
+    
+    /// Print success message and update window title
+    pub fn print_success_with_title(message: &str) {
+        Self::print_success(message);
+        Self::update_title_for_status(&format!("✓ {}", message));
+    }
+    
+    /// Print error message and update window title
+    pub fn print_error_with_title(message: &str) {
+        Self::print_error(message);
+        Self::update_title_for_status(&format!("✗ {}", message));
+    }
+    
+    /// Test window title functionality with visible progress
+    pub fn test_window_title_progress() -> anyhow::Result<()> {
+        let steps = vec![
+            "Initializing system",
+            "Loading configuration", 
+            "Connecting to services",
+            "Processing data",
+            "Finalizing operations"
+        ];
+        
+        println!("{}", "Testing Window Title Updates".bold().cyan());
+        println!("{}", "Watch your terminal window title!".yellow());
+        println!();
+        
+        for (i, step) in steps.iter().enumerate() {
+            Self::print_step(i + 1, steps.len(), step);
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+        }
+        
+        Self::print_success_with_title("Window title test completed!");
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        
+        Ok(())
     }
 }
 

@@ -2,7 +2,6 @@
 // Common configuration handling used across multiple modules
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SharedConfig {

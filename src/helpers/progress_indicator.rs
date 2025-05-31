@@ -10,7 +10,9 @@ use std::sync::{
 };
 use std::thread;
 use std::time::Duration;
+use std::env;
 use colored::Colorize;
+use crate::helpers::CommandHelpers;
 
 /// A spinner that shows an animation while a task is in progress
 pub struct Spinner {
@@ -38,6 +40,11 @@ impl Spinner {
 
         // Set the active flag
         self.active.store(true, Ordering::SeqCst);
+        
+        // Update window title with progress status
+        if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+            CommandHelpers::update_window_title_with_status(&command, &self.message);
+        }
         
         // Print the message
         print!("{} ", self.message.blue());
@@ -82,6 +89,17 @@ impl Spinner {
         // Wait for the animation thread to finish
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
+        }
+
+        // Update window title with result status
+        if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+            let status = match result {
+                SpinnerResult::Success => format!("{} - Complete", self.message),
+                SpinnerResult::Failure => format!("{} - Failed", self.message),
+                SpinnerResult::Warning => format!("{} - Warning", self.message),
+                SpinnerResult::Info => format!("{} - Done", self.message),
+            };
+            CommandHelpers::update_window_title_with_status(&command, &status);
         }
 
         // Print the result symbol
@@ -146,9 +164,20 @@ where
 {
     println!("{}", message.blue());
     
+    // Update window title with initial progress
+    if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+        CommandHelpers::update_window_title_with_status(&command, message);
+    }
+    
     // Create a progress update function
     let update_progress = |step: usize| {
         if step < updates.len() {
+            // Update window title with current step
+            if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+                let status = format!("{} - {}", message, updates[step]);
+                CommandHelpers::update_window_title_with_status(&command, &status);
+            }
+            
             print!("  {} {}", "→".cyan(), updates[step]);
             io::stdout().flush().unwrap();
             println!(" {}", "✓".green());
@@ -157,6 +186,15 @@ where
     
     // Run the function with progress updates
     let result = f(&update_progress);
+    
+    // Update window title with final result
+    if let Ok(command) = env::var("CI_CURRENT_COMMAND") {
+        let status = match &result {
+            Ok(_) => format!("{} - Complete", message),
+            Err(_) => format!("{} - Failed", message),
+        };
+        CommandHelpers::update_window_title_with_status(&command, &status);
+    }
     
     match &result {
         Ok(_) => println!("{} {}", "✓".green(), "Complete".green()),

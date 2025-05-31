@@ -3,9 +3,8 @@ use clap::{Arg, ArgMatches, Command};
 use colored::Colorize;
 use std::fs;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process;
-use std::time::Duration;
 
 use crate::errors::CIError;
 use crate::helpers::path::get_ci_root;
@@ -181,7 +180,7 @@ fn fix_timeout_issues(dry_run: bool, timeout: u64) -> Result<()> {
 
 
 
-fn fix_config_issues(dry_run: bool, force: bool) -> Result<()> {
+fn fix_config_issues(dry_run: bool, _force: bool) -> Result<()> {
     println!("{}", "Fixing configuration issues...".bold());
     
     let ci_root = get_ci_root()?;

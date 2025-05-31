@@ -2,7 +2,6 @@
 // Command handlers for all topology operations
 
 use anyhow::{Result, Context};
-use colored::Colorize;
 use std::collections::HashMap;
 
 use crate::config::Config;

@@ -2,10 +2,10 @@ use anyhow::{Context, Result};
 use clap::{Arg, ArgMatches, Command};
 use colored::Colorize;
 use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::Path;
 use std::process;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tempfile::NamedTempFile;
 
 use crate::errors::CIError;

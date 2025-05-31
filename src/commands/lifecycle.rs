@@ -4,7 +4,6 @@ use std::fs;
 use std::process::Command;
 use chrono;
 use colored::Colorize;
-use std::os::unix::fs::PermissionsExt;
 use serde::{Serialize, Deserialize};
 
 use crate::config::Config;

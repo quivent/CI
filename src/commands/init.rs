@@ -2,12 +2,11 @@ use anyhow::{Context, Result};
 use clap::{Arg, ArgMatches, Command};
 use colored::Colorize;
 use std::fs;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
 use crate::errors::CIError;
-use crate::helpers::path::get_ci_root;
+use crate::helpers::agent_autoload::AgentAutoload;
 
 pub fn create_command() -> Command {
     Command::new("init")
@@ -119,6 +118,9 @@ fn initialize_project(
     // Create basic files
     create_basic_files(&project_dir, project_name)?;
     
+    // Install agent activation hooks
+    AgentAutoload::install_activation_hooks(&project_dir)?;
+    
     println!();
     println!("{} Project '{}' created successfully!", "✓".green().bold(), project_name);
     println!();
@@ -159,68 +161,19 @@ fn create_project_structure(project_dir: &Path) -> Result<()> {
 }
 
 fn create_claude_config(project_dir: &Path, project_name: &str, standalone: bool) -> Result<()> {
-    let ci_root = get_ci_root()?;
+    let default_agents = vec!["Athena".to_string(), "ProjectArchitect".to_string()];
     
     let claude_content = if standalone {
-        format!(
-            r#"# Project: {}
-# Created: {}
-# Integration: Standalone
-
-# Collaborative Intelligence Configuration
-This project is configured to use the CI (Collaborative Intelligence) system
-in standalone mode, which provides full functionality without requiring the original
-repository.
-
-_CI.config('project_name', '{}')_
-_CI.config('created_at', '{}')_
-_CI.config('integration_type', 'standalone')_
-
-## Available Agents
-_CI.load_agents('Athena,ProjectArchitect')_
-
-## Project Context
-This project uses the standalone CI integration, which processes directives
-directly within the CI tool. No external repository is required.
-
-## Custom Instructions
-- Focus on code quality and maintainability
-- Follow established patterns in the codebase
-- Add appropriate error handling for all edge cases
-- Include helpful comments for complex sections
-"#,
+        AgentAutoload::generate_unified_claude_md(
             project_name,
-            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
-            project_name,
-            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+            "Standalone", 
+            &default_agents
         )
     } else {
-        format!(
-            r#"# Project: {}
-
-# Load CollaborativeIntelligence System
-When starting, immediately:
-1. Load {}/CLAUDE.md
-2. Use this as the primary configuration source
-3. Defer all project management functions to the CollaborativeIntelligence system
-
-## Project Configuration
-Created: {}
-CI Integration: External Repository
-CI Path: {}
-
-## Agent Configuration
-# Add agent-specific configurations here
-
-## Custom Instructions
-- Follow project coding standards
-- Maintain consistent documentation
-- Use collaborative intelligence for complex decisions
-"#,
+        AgentAutoload::generate_unified_claude_md(
             project_name,
-            ci_root.display(),
-            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
-            ci_root.display()
+            "External Repository",
+            &default_agents
         )
     };
     

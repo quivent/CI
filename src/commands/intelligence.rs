@@ -8,7 +8,7 @@ use std::process::Command;
 use crate::config::Config;
 use crate::helpers::CommandHelpers;
 
-pub async fn intent(__config: &Config) -> Result<()> {
+pub async fn intent(_config: &Config) -> Result<()> {
     // Follows exact format of the original CI intent command for perfect parity
     println!("{}", "Collaborative Intelligence Tool".green().bold());
     println!("{}", "=========================================".green());
@@ -761,6 +761,67 @@ async fn load_from_agents_md(agent_name: &str, context: Option<&str>, path: Opti
         CommandHelpers::print_info(&format!("  cat {} | claude code", working_memory_path.display()));
         CommandHelpers::print_info(&format!("  # or"));
         CommandHelpers::print_info(&format!("  claude code < {}", working_memory_path.display()));
+    }
+    
+    Ok(())
+}
+
+pub async fn adapt_session(path: &Path, config: &Config) -> Result<()> {
+    CommandHelpers::print_command_header(
+        "Adaptive Claude Code Session", 
+        "🧠", 
+        "Intelligence & Discovery", 
+        "blue"
+    );
+    
+    // Look for CLAUDE.adaptation.md in the specified path
+    let adapt_file = path.join("CLAUDE.adaptation.md");
+    
+    if !adapt_file.exists() {
+        CommandHelpers::print_error(&format!("CLAUDE.adaptation.md not found in {}", path.display()));
+        CommandHelpers::print_info("Create CLAUDE.adaptation.md with memory configuration and initial prompt.");
+        return Err(anyhow::anyhow!("CLAUDE.adaptation.md file not found"));
+    }
+    
+    // Read the adapt file content
+    let adapt_content = std::fs::read_to_string(&adapt_file)
+        .map_err(|e| anyhow::anyhow!("Failed to read CLAUDE.adaptation.md: {}", e))?;
+    
+    CommandHelpers::print_info(&format!("Loading adaptive memory from: {}", adapt_file.display()));
+    
+    // Check if claude CLI is available
+    if !has_claude_cli() {
+        CommandHelpers::print_error("Claude CLI not found. Please install it first.");
+        return Err(anyhow::anyhow!("Claude CLI not available"));
+    }
+    
+    // Create a temporary file with the adapt content
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join("ci_adapt_session.md");
+    
+    std::fs::write(&temp_file, &adapt_content)
+        .map_err(|e| anyhow::anyhow!("Failed to create temporary file: {}", e))?;
+    
+    CommandHelpers::print_success("Launching Claude Code with adaptive configuration...");
+    
+    // Launch Claude Code with the adapt content
+    let status = Command::new("cat")
+        .arg(&temp_file)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|output| {
+            Command::new("claude")
+                .arg("code")
+                .stdin(output.stdout.unwrap())
+                .status()
+        })
+        .map_err(|e| anyhow::anyhow!("Failed to launch Claude Code: {}", e))?;
+    
+    // Clean up temp file
+    let _ = std::fs::remove_file(&temp_file);
+    
+    if !status.success() {
+        CommandHelpers::print_warning("Claude Code exited with a non-zero status");
     }
     
     Ok(())

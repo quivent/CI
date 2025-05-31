@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::*;
 use crate::config::Config;
 use crate::{VisualizationFormat, VisualizationTheme};
@@ -125,7 +125,7 @@ fn show_architecture_diagram(art_gen: &AsciiArtGenerator) -> Result<()> {
     Ok(())
 }
 
-async fn show_component_overview(art_gen: &AsciiArtGenerator, config: &Config) -> Result<()> {
+async fn show_component_overview(art_gen: &AsciiArtGenerator, _config: &Config) -> Result<()> {
     println!("{}", art_gen.create_section_header("Core Components"));
     
     let components = vec![

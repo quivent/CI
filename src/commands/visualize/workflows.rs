@@ -54,7 +54,7 @@ pub async fn show_workflows(
     Ok(())
 }
 
-fn show_beginner_workflows(art_gen: &AsciiArtGenerator) -> Result<()> {
+fn show_beginner_workflows(_art_gen: &AsciiArtGenerator) -> Result<()> {
     println!("🌱 {}", "Beginner-Friendly Workflows".bold().green());
     println!();
     
@@ -76,7 +76,7 @@ fn show_beginner_workflows(art_gen: &AsciiArtGenerator) -> Result<()> {
     Ok(())
 }
 
-fn show_workflow_categories(art_gen: &AsciiArtGenerator, category: Option<&str>) -> Result<()> {
+fn show_workflow_categories(_art_gen: &AsciiArtGenerator, category: Option<&str>) -> Result<()> {
     println!("🔄 {}", "Workflow Categories".bold().cyan());
     
     let categories = vec![

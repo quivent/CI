@@ -70,7 +70,7 @@ fn show_agent_network(art_gen: &AsciiArtGenerator) -> Result<()> {
     Ok(())
 }
 
-fn show_agent_categories(art_gen: &AsciiArtGenerator) -> Result<()> {
+fn show_agent_categories(_art_gen: &AsciiArtGenerator) -> Result<()> {
     println!("📊 {}", "Agent Categories".bold().cyan());
     
     let categories = vec![

@@ -612,7 +612,7 @@ impl WebExporter {
     }
     
     async fn generate_commands_svg(&self, group: Option<&str>, tree: bool, _config: &Config) -> Result<String> {
-        let (primary_color, secondary_color, accent_color) = self.get_theme_colors();
+        let (primary_color, _secondary_color, accent_color) = self.get_theme_colors();
         
         let title = if let Some(g) = group {
             format!("CI Commands - {} Group", g)

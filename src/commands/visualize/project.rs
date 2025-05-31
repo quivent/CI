@@ -50,7 +50,7 @@ pub async fn show_project(
     Ok(())
 }
 
-fn show_project_overview(art_gen: &AsciiArtGenerator, project_name: &str, config: &Config) -> Result<()> {
+fn show_project_overview(_art_gen: &AsciiArtGenerator, project_name: &str, config: &Config) -> Result<()> {
     println!("📦 {}", "Project Overview".bold().cyan());
     
     println!("  {} Project Name: {}", "📛".blue(), project_name.bold().cyan());

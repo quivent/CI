@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::*;
 use crate::config::Config;
 use crate::{VisualizationCommands, VisualizationFormat, VisualizationTheme};
@@ -16,8 +16,8 @@ pub use commands::*;
 pub use agents::*;
 pub use workflows::*;
 pub use project::*;
-pub use ascii_art::*;
-pub use web_export::*;
+use ascii_art::AsciiArtGenerator;
+use web_export::WebExporter;
 
 /// Handle visualization commands
 pub async fn handle_visualization_command(

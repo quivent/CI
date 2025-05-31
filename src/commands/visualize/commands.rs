@@ -75,7 +75,7 @@ fn show_command_tree(art_gen: &AsciiArtGenerator) -> Result<()> {
     Ok(())
 }
 
-fn show_command_categories(art_gen: &AsciiArtGenerator) -> Result<()> {
+fn show_command_categories(_art_gen: &AsciiArtGenerator) -> Result<()> {
     let categories = vec![
         ("Intelligence", "🧠"),
         ("Development", "🔧"),

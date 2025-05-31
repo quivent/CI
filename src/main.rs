@@ -129,7 +129,7 @@ enum Commands {
         context: Option<String>,
         
         /// Memory path to load (defaults to standard agent memory)
-        #[arg(short, long)]
+        #[arg(short = 'f', long)]
         path: Option<PathBuf>,
         
         /// Prompt before launching Claude Code (overrides default auto-launch)

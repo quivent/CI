@@ -1,6 +1,6 @@
 # CI Standardization Report
 
-Generated: 2025-05-30 23:59:47 UTC
+Generated: 2025-05-31 02:54:33 UTC
 Protocol Version: 1.0.0
 
 ## Violations Found
@@ -42,20 +42,6 @@ Protocol Version: 1.0.0
   "version": "1.0.0",
   "enforcement_level": "Error",
   "standards": {
-    "error_handling": {
-      "category": "Error Management",
-      "description": "Use CIError for all agent-related errors with context",
-      "required_pattern": "CIError::[A-Z][a-zA-Z]*\\(.*\\)\\.into\\(\\)",
-      "examples": [
-        "CIError::AgentNotFound(name.clone()).into()",
-        "CIError::ActivationFailed(msg).into()"
-      ],
-      "violations": [
-        "anyhow::anyhow!()",
-        "panic!()"
-      ],
-      "enforcement": "Warning"
-    },
     "claude_md_generation": {
       "category": "Configuration",
       "description": "Use unified CLAUDE.md template with agent activation protocol",
@@ -67,6 +53,18 @@ Protocol Version: 1.0.0
         "Multiple different CLAUDE.md formats"
       ],
       "enforcement": "Blocking"
+    },
+    "agent_activation": {
+      "category": "Agent Management",
+      "description": "Use signature protocol detection for agent activation",
+      "required_pattern": "\\[AGENT_NAME\\].*--\\s*\\[AGENT_NAME\\]",
+      "examples": [
+        "[ATHENA]: content -- [ATHENA]"
+      ],
+      "violations": [
+        "@[AGENT_ACTIVATION:{}]"
+      ],
+      "enforcement": "Error"
     },
     "agent_function_naming": {
       "category": "Naming Conventions",
@@ -84,17 +82,19 @@ Protocol Version: 1.0.0
       ],
       "enforcement": "Error"
     },
-    "agent_activation": {
-      "category": "Agent Management",
-      "description": "Use signature protocol detection for agent activation",
-      "required_pattern": "\\[AGENT_NAME\\].*--\\s*\\[AGENT_NAME\\]",
+    "error_handling": {
+      "category": "Error Management",
+      "description": "Use CIError for all agent-related errors with context",
+      "required_pattern": "CIError::[A-Z][a-zA-Z]*\\(.*\\)\\.into\\(\\)",
       "examples": [
-        "[ATHENA]: content -- [ATHENA]"
+        "CIError::AgentNotFound(name.clone()).into()",
+        "CIError::ActivationFailed(msg).into()"
       ],
       "violations": [
-        "@[AGENT_ACTIVATION:{}]"
+        "anyhow::anyhow!()",
+        "panic!()"
       ],
-      "enforcement": "Error"
+      "enforcement": "Warning"
     }
   },
   "global_policies": [

@@ -35,6 +35,8 @@ pub mod errors;
 pub mod topology;
 pub mod shared;
 
+use crate::helpers::agent_autoload::AgentAutoload;
+
 // Legacy error module - kept for backward compatibility
 // New code should use the errors module
 #[deprecated(since = "1.1.0", note = "Use the errors module instead")]
@@ -130,9 +132,16 @@ enum Commands {
         #[arg(short, long)]
         path: Option<PathBuf>,
         
-        /// Automatically launch Claude Code without prompting
+        /// Prompt before launching Claude Code (overrides default auto-launch)
         #[arg(short, long)]
-        yes: bool,
+        prompt: bool,
+    },
+    
+    /// Start a Claude Code session with adaptive memory from CLAUDE.adaptation.md
+    Adapt {
+        /// Path to target directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
     },
     
     /// List projects integrated with Collaborative Intelligence
@@ -408,6 +417,10 @@ enum Commands {
     /// Print version information
     Version,
     
+    /// Test window title functionality (debug command)
+    #[command(hide = true)]
+    TestWindowTitle,
+    
     //
     // Topology Management Commands
     //
@@ -640,6 +653,12 @@ enum AgentCommands {
         context: Option<String>,
     },
     
+    /// Load agent memory and capabilities
+    Load {
+        /// Name of the agent to load
+        agent_name: String,
+    },
+    
     /// Create an agent from a template
     Template {
         /// Name of the template
@@ -647,6 +666,17 @@ enum AgentCommands {
         
         /// Name for the new agent
         agent_name: Option<String>,
+    },
+    
+    /// Deploy CI tool globally with latest changes
+    Deploy {
+        /// Force deployment even if no changes detected
+        #[arg(long)]
+        force: bool,
+        
+        /// Create backup of existing global binary
+        #[arg(long)]
+        backup: bool,
     },
 }
 
@@ -1102,35 +1132,46 @@ fn print_help_with_categories() {
 /// Handle agent commands
 async fn handle_agent_command(command: &AgentCommands) -> anyhow::Result<()> {
     match command {
-        AgentCommands::List { enabled_only, verbose } => {
-            let mut args = clap::ArgMatches::default();
+        AgentCommands::List { enabled_only: _, verbose: _ } => {
+            let args = clap::ArgMatches::default();
             // Convert to clap ArgMatches - this is a simplified version
             // In practice, you'd want to create proper ArgMatches
             commands::agents::execute(&args)
         },
-        AgentCommands::Info { agent_name } => {
+        AgentCommands::Info { agent_name: _ } => {
             // Create ArgMatches for info subcommand
-            let mut args = clap::ArgMatches::default();
+            let args = clap::ArgMatches::default();
             commands::agents::execute(&args)
         },
-        AgentCommands::Create { agent_name, template, enable } => {
-            let mut args = clap::ArgMatches::default();
+        AgentCommands::Create { agent_name: _, template: _, enable: _ } => {
+            let args = clap::ArgMatches::default();
             commands::agents::execute(&args)
         },
-        AgentCommands::Enable { agent_name } => {
-            let mut args = clap::ArgMatches::default();
+        AgentCommands::Enable { agent_name: _ } => {
+            let args = clap::ArgMatches::default();
             commands::agents::execute(&args)
         },
-        AgentCommands::Disable { agent_name } => {
-            let mut args = clap::ArgMatches::default();
+        AgentCommands::Disable { agent_name: _ } => {
+            let args = clap::ArgMatches::default();
             commands::agents::execute(&args)
         },
-        AgentCommands::Activate { agent_name, context } => {
-            let mut args = clap::ArgMatches::default();
+        AgentCommands::Activate { agent_name: _, context: _ } => {
+            let args = clap::ArgMatches::default();
             commands::agents::execute(&args)
         },
-        AgentCommands::Template { template_name, agent_name } => {
-            let mut args = clap::ArgMatches::default();
+        AgentCommands::Load { agent_name } => {
+            // Create ArgMatches with the agent_name for the load subcommand
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "load", agent_name])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Template { template_name: _, agent_name: _ } => {
+            let args = clap::ArgMatches::default();
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Deploy { force: _, backup: _ } => {
+            let args = clap::ArgMatches::default();
             commands::agents::execute(&args)
         },
     }
@@ -1139,24 +1180,24 @@ async fn handle_agent_command(command: &AgentCommands) -> anyhow::Result<()> {
 /// Handle session commands
 async fn handle_session_command(command: &SessionCommands) -> anyhow::Result<()> {
     match command {
-        SessionCommands::List { agent, status, recent } => {
-            let mut args = clap::ArgMatches::default();
+        SessionCommands::List { agent: _, status: _, recent: _ } => {
+            let args = clap::ArgMatches::default();
             commands::session::execute(&args)
         },
-        SessionCommands::Create { agent_name, session_name, description, tags } => {
-            let mut args = clap::ArgMatches::default();
+        SessionCommands::Create { agent_name: _, session_name: _, description: _, tags: _ } => {
+            let args = clap::ArgMatches::default();
             commands::session::execute(&args)
         },
-        SessionCommands::Info { agent_name, session_name } => {
-            let mut args = clap::ArgMatches::default();
+        SessionCommands::Info { agent_name: _, session_name: _ } => {
+            let args = clap::ArgMatches::default();
             commands::session::execute(&args)
         },
-        SessionCommands::Archive { agent_name, session_name } => {
-            let mut args = clap::ArgMatches::default();
+        SessionCommands::Archive { agent_name: _, session_name: _ } => {
+            let args = clap::ArgMatches::default();
             commands::session::execute(&args)
         },
-        SessionCommands::Cleanup { days, dry_run } => {
-            let mut args = clap::ArgMatches::default();
+        SessionCommands::Cleanup { days: _, dry_run: _ } => {
+            let args = clap::ArgMatches::default();
             commands::session::execute(&args)
         },
     }
@@ -1213,6 +1254,44 @@ async fn legacy_command(create: bool, remove: bool, list: bool, _config: &config
         if bin_dir.exists() {
             let count = legacy::remove_legacy_command_symlinks(&bin_dir)?;
             CommandHelpers::print_success(&format!("Removed {} legacy command symlinks from {}", count, bin_dir.display()));
+        }
+    }
+    
+    Ok(())
+}
+
+/// Run standardization check for Standardist agent protocols
+fn run_standardization_check() -> anyhow::Result<()> {
+    // Set window title for current agent session
+    use crate::helpers::agent_autoload::AgentAutoload;
+    AgentAutoload::set_agent_session_window_title("Standardist", "Analyzing");
+    
+    // Only run if we're in a CI project directory
+    let current_dir = std::env::current_dir()?;
+    if current_dir.join("CLAUDE.md").exists() || current_dir.join("Cargo.toml").exists() {
+        if let Err(_) = crate::tools::quick_standardization_check() {
+            // Silently continue if standardization check fails to avoid blocking normal operations
+        }
+    }
+    
+    // Update title to show completion
+    AgentAutoload::update_agent_session_title("Standardist", "Analysis", "Complete");
+    
+    Ok(())
+}
+
+/// Check if the current directory requires agent activation
+fn check_agent_activation_requirements() -> anyhow::Result<()> {
+    let current_dir = std::env::current_dir()?;
+    
+    // Check if this is a CI project that requires agents
+    if AgentAutoload::is_agent_required(&current_dir)? {
+        if let Some(config) = AgentAutoload::parse_agent_config(&current_dir)? {
+            // Display notification if agent activation is configured
+            if config.auto_activate {
+                println!("{}", "📋 Agent activation configured for this project".cyan().dimmed());
+                println!("{}", "   Agents should be automatically loaded from CLAUDE.md".dimmed());
+            }
         }
     }
     
@@ -1284,6 +1363,20 @@ async fn main() -> anyhow::Result<()> {
     let config = config::Config::load()
         .context("Failed to load configuration")?;
     
+    // Check for agent activation requirements in current directory
+    check_agent_activation_requirements()?;
+    
+    // Run standardization check for Standardist agent (skip for agent commands to avoid interference)
+    let skip_standardization = match &cli.command {
+        Some(Commands::Agent { .. }) => true,
+        Some(Commands::Agents) => true,
+        _ => false,
+    };
+    
+    if !skip_standardization {
+        run_standardization_check()?;
+    }
+    
     // Get the command name for window title
     let command_name = match &cli.command {
         Some(cmd) => {
@@ -1292,6 +1385,7 @@ async fn main() -> anyhow::Result<()> {
                 Commands::Agents => "agents", 
                 Commands::Agent { .. } => "agent",
                 Commands::Load { .. } => "load",
+                Commands::Adapt { .. } => "adapt",
                 Commands::Projects => "projects",
                 Commands::Idea { .. } => "idea",
                 Commands::Status => "status",
@@ -1322,6 +1416,7 @@ async fn main() -> anyhow::Result<()> {
                 Commands::AddCommand { .. } => "add-command",
                 Commands::Command { .. } => "command",
                 Commands::Version => "version",
+                Commands::TestWindowTitle => "test-window-title",
                 Commands::Topologist { .. } => "topologist",
                 Commands::Session { .. } => "session",
                 Commands::Visualize { .. } => "visualize",
@@ -1332,8 +1427,9 @@ async fn main() -> anyhow::Result<()> {
         None => "help"
     };
     
-    // Set window title for the command
+    // Set window title for the command and store command name for progress updates
     use crate::helpers::CommandHelpers;
+    std::env::set_var("CI_CURRENT_COMMAND", command_name);
     CommandHelpers::set_window_title(command_name);
     
     // Process commands and ensure title is restored
@@ -1343,13 +1439,35 @@ async fn main() -> anyhow::Result<()> {
             commands::intelligence::intent(&config).await
         },
         Commands::Agents => {
-            commands::intelligence::agents(&config).await
+            // Use the stylized agents list instead of the full documentation
+            let app = commands::agents::create_command();
+            let args = vec!["agent".to_string(), "list".to_string()];
+            
+            match app.try_get_matches_from(&args) {
+                Ok(matches) => {
+                    if let Some(("list", sub_matches)) = matches.subcommand() {
+                        commands::agents::list_agents(sub_matches)
+                    } else {
+                        commands::agents::execute(&matches)
+                    }
+                },
+                Err(e) => {
+                    // Debug the error and fallback to intelligence::agents if there's an issue
+                    eprintln!("Agent command parsing failed: {}", e);
+                    commands::intelligence::agents(&config).await
+                }
+            }
         },
         Commands::Agent { command } => {
             handle_agent_command(&command).await
         },
-        Commands::Load { agent, context, path, yes } => {
-            commands::intelligence::load_agent(&agent, context.as_deref(), path.as_deref(), yes, &config).await
+        Commands::Load { agent, context, path, prompt } => {
+            // Invert the prompt flag - default is auto-launch (true), --prompt makes it false
+            let auto_yes = !prompt;
+            commands::intelligence::load_agent(&agent, context.as_deref(), path.as_deref(), auto_yes, &config).await
+        },
+        Commands::Adapt { path } => {
+            commands::intelligence::adapt_session(&path, &config).await
         },
         Commands::Projects => {
             commands::intelligence::projects(&config).await
@@ -1504,6 +1622,9 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::Version => {
             commands::system::version(&config).await
+        },
+        Commands::TestWindowTitle => {
+            CommandHelpers::test_window_title_progress()
         },
         Commands::Topologist(topology_command) => {
             commands::topology::topology(&topology_command, &config).await

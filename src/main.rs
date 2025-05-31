@@ -369,6 +369,9 @@ enum Commands {
     /// Create symlinks to the CI binary in system paths
     Link,
     
+    /// Build, install and create symlinks in one command
+    Setup,
+    
     /// Remove symlinks to the CI binary from system paths
     Unlink,
     
@@ -1010,6 +1013,8 @@ fn get_colored_command_help() -> String {
     help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "link".blue(), "Create symlinks to the CI binary in system paths".blue()));
     help_text.push_str("\n");
+    help_text.push_str(&format!("  {:<12} {}", "setup".blue(), "Build, install and create symlinks in one command".blue()));
+    help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "unlink".blue(), "Remove symlinks to the CI binary from system paths".blue()));
     help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "legacy".blue(), "Create legacy command symlinks for CI compatibility".blue()));
@@ -1099,6 +1104,8 @@ fn get_colored_command_help() -> String {
     help_text.push_str(&format!("  {}", "└─────────────────────────────────────────────────────────────────┘".magenta()));
     help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "topologist".magenta(), "Repository topology management and intelligent commit organization".magenta()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("             {}", "↳ sequential: Sequential commit execution with metadata grouping".dimmed()));
     help_text.push_str("\n");
     help_text.push_str(&format!("             {}", "↳ git-analysis: Detailed git repository topology analysis".dimmed()));
     help_text.push_str("\n");
@@ -1409,6 +1416,7 @@ async fn main() -> anyhow::Result<()> {
                 Commands::Rebuild => "rebuild",
                 Commands::Install => "install",
                 Commands::Link => "link",
+                Commands::Setup => "setup",
                 Commands::Unlink => "unlink",
                 Commands::Legacy { .. } => "legacy",
                 Commands::Docs => "docs",
@@ -1596,6 +1604,9 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::Link => {
             commands::system::link(&config).await
+        },
+        Commands::Setup => {
+            commands::system::setup(&config).await
         },
         Commands::Unlink => {
             commands::system::unlink(&config).await

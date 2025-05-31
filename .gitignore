@@ -68,3 +68,6 @@ ENV/
 backup_before_*/
 *.tmp
 *.temp
+
+# Added by Collaborative Intelligence in Rust
+.ci/

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use crate::config::Config;
 use crate::helpers::command::CommandHelpers;
-use crate::topology::{Topologist, TopologyAnalysis, FileCategory};
+use crate::topology::{Topologist, TopologyAnalysis, FileCategory, CommitPhase};
 use crate::errors::CIError;
 
 #[derive(clap::Subcommand)]
@@ -40,6 +40,19 @@ pub enum TopologyCommands {
     Export,
     /// Git repository topology analysis (detailed)
     GitAnalysis,
+    /// Sequential commit execution with metadata grouping
+    Sequential {
+        #[arg(long, help = "Group by metadata priority (high, medium, low)")]
+        by_priority: bool,
+        #[arg(long, help = "Group by file type and category")]
+        by_category: bool,
+        #[arg(long, help = "Group by estimated size for balanced commits")]
+        by_size: bool,
+        #[arg(long, help = "Interactive mode for manual phase selection")]
+        interactive: bool,
+        #[arg(long, help = "Dry run - show what would be committed")]
+        dry_run: bool,
+    },
 }
 
 pub async fn topology(command: &TopologyCommands, _config: &Config) -> Result<()> {
@@ -72,6 +85,9 @@ pub async fn topology(command: &TopologyCommands, _config: &Config) -> Result<()
         },
         TopologyCommands::GitAnalysis => {
             handle_git_analysis().await
+        },
+        TopologyCommands::Sequential { by_priority, by_category, by_size, interactive, dry_run } => {
+            handle_sequential_commits(&mut topologist, *by_priority, *by_category, *by_size, *interactive, *dry_run).await
         },
     }
 }
@@ -660,6 +676,302 @@ fn show_largest_files() -> Result<()> {
     println!("- **Healthy distribution**: No single massive files after optimization");
     println!("- **Total objects**: Efficiently packed in compressed storage");
     println!("\n*Compressed sizes are estimates based on pack compression ratio");
+    Ok(())
+}
+
+async fn handle_sequential_commits(
+    topologist: &mut Topologist, 
+    by_priority: bool, 
+    by_category: bool, 
+    by_size: bool, 
+    interactive: bool, 
+    dry_run: bool
+) -> Result<()> {
+    CommandHelpers::print_command_header(
+        "Sequential commit execution with metadata grouping",
+        "⚡",
+        "Topology Management",
+        "cyan"
+    );
+
+    let analysis = topologist.analyze_repository()
+        .map_err(|e| CIError::TopologyError(e.to_string()))?;
+    
+    if analysis.commit_phases.is_empty() {
+        println!("✅ Repository is already organized - no commits needed");
+        return Ok(());
+    }
+
+    // Apply the requested grouping strategy
+    let mut phases = analysis.commit_phases.clone();
+    
+    if by_priority {
+        phases = group_by_priority(phases);
+        println!("📊 Grouped {} phases by metadata priority", phases.len());
+    } else if by_category {
+        phases = group_by_category(phases);
+        println!("📂 Grouped {} phases by file category", phases.len());
+    } else if by_size {
+        phases = group_by_size(phases);
+        println!("📏 Grouped {} phases by balanced size", phases.len());
+    } else {
+        println!("📋 Using default sequential grouping ({} phases)", phases.len());
+    }
+
+    print_sequential_plan(&phases);
+
+    if dry_run {
+        println!("\n🔍 Dry run mode - no commits will be made");
+        return Ok(());
+    }
+
+    if interactive {
+        execute_interactive_sequence(topologist, &phases).await
+    } else {
+        execute_automatic_sequence(topologist, &phases).await
+    }
+}
+
+fn group_by_priority(mut phases: Vec<CommitPhase>) -> Vec<CommitPhase> {
+    use crate::topology::FileCategory;
+    
+    // Priority-based sorting with high -> medium -> low
+    phases.sort_by(|a, b| {
+        let priority_a = match a.category {
+            FileCategory::Configuration => 10,  // Critical files first
+            FileCategory::Documentation => 9,   // Documentation second
+            FileCategory::DevelopmentTools => 8,
+            FileCategory::SourceCode => 7,
+            FileCategory::MediaAssets => 6,
+            FileCategory::BuildArtifacts => 1,  // Build artifacts last
+            FileCategory::Unknown => 5,
+        };
+        let priority_b = match b.category {
+            FileCategory::Configuration => 10,
+            FileCategory::Documentation => 9,
+            FileCategory::DevelopmentTools => 8,
+            FileCategory::SourceCode => 7,
+            FileCategory::MediaAssets => 6,
+            FileCategory::BuildArtifacts => 1,
+            FileCategory::Unknown => 5,
+        };
+        priority_b.cmp(&priority_a)
+    });
+
+    // Renumber phases after sorting
+    for (i, phase) in phases.iter_mut().enumerate() {
+        phase.phase_number = i + 1;
+    }
+
+    phases
+}
+
+fn group_by_category(mut phases: Vec<CommitPhase>) -> Vec<CommitPhase> {
+    // Group similar categories together and sort by category type
+    phases.sort_by(|a, b| {
+        format!("{:?}", a.category).cmp(&format!("{:?}", b.category))
+    });
+
+    // Renumber phases after sorting
+    for (i, phase) in phases.iter_mut().enumerate() {
+        phase.phase_number = i + 1;
+    }
+
+    phases
+}
+
+fn group_by_size(mut phases: Vec<CommitPhase>) -> Vec<CommitPhase> {
+    // Balance phases by size - alternate large and small commits
+    phases.sort_by(|a, b| a.estimated_size.cmp(&b.estimated_size));
+    
+    let mut balanced_phases = Vec::new();
+    let mut large_phases = Vec::new();
+    let mut small_phases = Vec::new();
+    
+    let median_size = if phases.len() > 0 {
+        phases[phases.len() / 2].estimated_size
+    } else {
+        0
+    };
+    
+    for phase in phases {
+        if phase.estimated_size >= median_size {
+            large_phases.push(phase);
+        } else {
+            small_phases.push(phase);
+        }
+    }
+    
+    // Interleave large and small phases for better balance
+    let max_len = large_phases.len().max(small_phases.len());
+    for i in 0..max_len {
+        if i < large_phases.len() {
+            balanced_phases.push(large_phases[i].clone());
+        }
+        if i < small_phases.len() {
+            balanced_phases.push(small_phases[i].clone());
+        }
+    }
+
+    // Renumber phases after reordering
+    for (i, phase) in balanced_phases.iter_mut().enumerate() {
+        phase.phase_number = i + 1;
+    }
+
+    balanced_phases
+}
+
+fn print_sequential_plan(phases: &[CommitPhase]) {
+    println!("\n📋 Sequential Execution Plan:");
+    println!("═══════════════════════════════════════════════════════");
+    
+    for (i, phase) in phases.iter().enumerate() {
+        let phase_num = i + 1;
+        let category_icon = match phase.category {
+            FileCategory::Configuration => "⚙️",
+            FileCategory::Documentation => "📚", 
+            FileCategory::SourceCode => "💻",
+            FileCategory::DevelopmentTools => "🔧",
+            FileCategory::MediaAssets => "🎨",
+            _ => "📄",
+        };
+        
+        let priority_level = match phase.category {
+            FileCategory::Configuration => "HIGH",
+            FileCategory::Documentation => "HIGH",
+            FileCategory::DevelopmentTools => "MEDIUM",
+            FileCategory::SourceCode => "MEDIUM",
+            FileCategory::MediaAssets => "LOW",
+            FileCategory::BuildArtifacts => "LOW",
+            FileCategory::Unknown => "MEDIUM",
+        };
+        
+        println!("Phase {}: {} {} [{}]", 
+                phase_num, 
+                category_icon, 
+                phase.commit_message, 
+                priority_level);
+        println!("├── Files: {} (+{} estimated lines)", 
+                phase.files.len(), 
+                phase.estimated_size);
+        
+        // Show file sample
+        for (j, file) in phase.files.iter().take(3).enumerate() {
+            let prefix = if j == 2 || j == phase.files.len() - 1 { "└──" } else { "├──" };
+            println!("{}   {}", prefix, file.path);
+        }
+        
+        if phase.files.len() > 3 {
+            println!("└──   ... and {} more files", phase.files.len() - 3);
+        }
+        println!();
+    }
+    
+    let total_files: usize = phases.iter().map(|p| p.files.len()).sum();
+    let total_size: usize = phases.iter().map(|p| p.estimated_size).sum();
+    println!("📊 Total: {} files, +{} estimated lines across {} commits", 
+             total_files, total_size, phases.len());
+}
+
+async fn execute_interactive_sequence(topologist: &mut Topologist, phases: &[CommitPhase]) -> Result<()> {
+    println!("\n🎯 Interactive Sequential Execution Mode");
+    println!("Choose phases to execute (enter phase numbers separated by commas, or 'all'):");
+    
+    use std::io::{self, Write};
+    
+    loop {
+        print!("\nPhases (1-{}, 'all', or 'quit'): ", phases.len());
+        io::stdout().flush().unwrap();
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).context("Failed to read input")?;
+        let input = input.trim();
+        
+        if input == "quit" {
+            println!("🛑 Interactive mode cancelled");
+            return Ok(());
+        }
+        
+        if input == "all" {
+            return execute_all_phases(topologist, phases).await;
+        }
+        
+        // Parse comma-separated phase numbers
+        let phase_numbers: Result<Vec<usize>, _> = input
+            .split(',')
+            .map(|s| s.trim().parse::<usize>())
+            .collect();
+        
+        match phase_numbers {
+            Ok(numbers) => {
+                let valid_numbers: Vec<usize> = numbers
+                    .into_iter()
+                    .filter(|&n| n > 0 && n <= phases.len())
+                    .collect();
+                
+                if valid_numbers.is_empty() {
+                    println!("❌ No valid phase numbers provided");
+                    continue;
+                }
+                
+                return execute_selected_phases(topologist, phases, &valid_numbers).await;
+            },
+            Err(_) => {
+                println!("❌ Invalid input. Please enter numbers separated by commas");
+                continue;
+            }
+        }
+    }
+}
+
+async fn execute_automatic_sequence(topologist: &mut Topologist, phases: &[CommitPhase]) -> Result<()> {
+    println!("\n🚀 Executing all phases automatically...");
+    execute_all_phases(topologist, phases).await
+}
+
+async fn execute_all_phases(topologist: &mut Topologist, phases: &[CommitPhase]) -> Result<()> {
+    println!("\n🚀 Executing all {} phases sequentially...", phases.len());
+    
+    for (i, phase) in phases.iter().enumerate() {
+        let phase_num = i + 1;
+        println!("\n📦 Phase {}/{}: {}", phase_num, phases.len(), phase.commit_message);
+        
+        let commit_hash = topologist.execute_phase(phase_num, phases)
+            .map_err(|e| CIError::TopologyError(e.to_string()))?;
+        
+        println!("   ✅ Commit: {} (+{} estimated lines)", 
+                 &commit_hash[..8], phase.estimated_size);
+        println!("   📁 Files: {}", phase.files.len());
+        
+        // Brief pause between commits for readability
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+    
+    println!("\n🎉 All {} phases completed successfully!", phases.len());
+    println!("📊 Repository is now fully organized and committed");
+    
+    Ok(())
+}
+
+async fn execute_selected_phases(topologist: &mut Topologist, phases: &[CommitPhase], selected: &[usize]) -> Result<()> {
+    println!("\n🎯 Executing {} selected phases...", selected.len());
+    
+    for &phase_num in selected {
+        let phase = &phases[phase_num - 1];
+        println!("\n📦 Phase {}: {}", phase_num, phase.commit_message);
+        
+        let commit_hash = topologist.execute_phase(phase_num, phases)
+            .map_err(|e| CIError::TopologyError(e.to_string()))?;
+        
+        println!("   ✅ Commit: {} (+{} estimated lines)", 
+                 &commit_hash[..8], phase.estimated_size);
+        println!("   📁 Files: {}", phase.files.len());
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+    
+    println!("\n🎉 Selected phases completed successfully!");
+    
     Ok(())
 }
 

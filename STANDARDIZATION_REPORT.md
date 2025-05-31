@@ -1,14 +1,9 @@
 # CI Standardization Report
 
-Generated: 2025-05-31 02:54:33 UTC
+Generated: 2025-05-31 03:13:44 UTC
 Protocol Version: 1.0.0
 
 ## Violations Found
-
-### error_handling
-
-- **/Users/joshkornreich/Documents/Projects/CI/src/commands/agent_integrate.rs:62**: Use CIError instead of anyhow::anyhow! for agent errors
-- **/Users/joshkornreich/Documents/Projects/CI/src/commands/agent_integrate.rs:66**: Use CIError instead of anyhow::anyhow! for agent errors
 
 ### agent_function_naming
 
@@ -35,6 +30,11 @@ Protocol Version: 1.0.0
 - **/Users/joshkornreich/Documents/Projects/CI/src/helpers/agent_autoload.rs:417**: Function 'test_agent_config_parsing' violates naming standard
 - **/Users/joshkornreich/Documents/Projects/CI/src/helpers/agent_autoload.rs:440**: Function 'test_agent_activation_detection' violates naming standard
 
+### error_handling
+
+- **/Users/joshkornreich/Documents/Projects/CI/src/commands/agent_integrate.rs:62**: Use CIError instead of anyhow::anyhow! for agent errors
+- **/Users/joshkornreich/Documents/Projects/CI/src/commands/agent_integrate.rs:66**: Use CIError instead of anyhow::anyhow! for agent errors
+
 ## Standardization Protocol
 
 ```json
@@ -53,6 +53,20 @@ Protocol Version: 1.0.0
         "Multiple different CLAUDE.md formats"
       ],
       "enforcement": "Blocking"
+    },
+    "error_handling": {
+      "category": "Error Management",
+      "description": "Use CIError for all agent-related errors with context",
+      "required_pattern": "CIError::[A-Z][a-zA-Z]*\\(.*\\)\\.into\\(\\)",
+      "examples": [
+        "CIError::AgentNotFound(name.clone()).into()",
+        "CIError::ActivationFailed(msg).into()"
+      ],
+      "violations": [
+        "anyhow::anyhow!()",
+        "panic!()"
+      ],
+      "enforcement": "Warning"
     },
     "agent_activation": {
       "category": "Agent Management",
@@ -81,20 +95,6 @@ Protocol Version: 1.0.0
         "loadAgent()"
       ],
       "enforcement": "Error"
-    },
-    "error_handling": {
-      "category": "Error Management",
-      "description": "Use CIError for all agent-related errors with context",
-      "required_pattern": "CIError::[A-Z][a-zA-Z]*\\(.*\\)\\.into\\(\\)",
-      "examples": [
-        "CIError::AgentNotFound(name.clone()).into()",
-        "CIError::ActivationFailed(msg).into()"
-      ],
-      "violations": [
-        "anyhow::anyhow!()",
-        "panic!()"
-      ],
-      "enforcement": "Warning"
     }
   },
   "global_policies": [

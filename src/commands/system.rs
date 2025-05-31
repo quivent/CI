@@ -704,6 +704,149 @@ pub async fn {}(__config: &Config) -> Result<()> {{
     Ok(())
 }
 
+/// Build, install and create symlinks in one command
+pub async fn setup(__config: &Config) -> Result<()> {
+    CommandHelpers::print_command_header(
+        "Complete CI Setup", 
+        "🚀", 
+        "System Management", 
+        "blue"
+    );
+    
+    println!("🔄 {}", "Running complete CI setup (build + install + symlink)...".blue());
+    println!();
+    
+    // Step 1: Build release version
+    println!("📦 {} {}", "Step 1/3:".bold(), "Building release version...".yellow());
+    
+    // Check for cargo
+    if !SystemHelpers::command_exists("cargo") {
+        CommandHelpers::print_error("Rust and Cargo are required but not installed.");
+        println!("Please install Rust from https://rustup.rs/ and try again.");
+        return Err(anyhow::anyhow!("Cargo not found"));
+    }
+    
+    // Build release version directly
+    CommandHelpers::with_progress("Building release version", || {
+        let output = Command::new("cargo")
+            .arg("build")
+            .arg("--release")
+            .output()
+            .context("Failed to execute cargo build --release")?;
+            
+        if !output.status.success() {
+            CommandHelpers::print_error("Release build failed.");
+            println!("{}", String::from_utf8_lossy(&output.stderr));
+            return Err(anyhow::anyhow!("Cargo build --release failed"));
+        }
+        
+        Ok(())
+    })?;
+    
+    CommandHelpers::print_success("Release build completed successfully");
+    
+    println!();
+    
+    // Step 2: Install to system path
+    println!("📦 {} {}", "Step 2/3:".bold(), "Installing to system path...".yellow());
+    
+    use std::fs;
+    use std::env;
+    
+    // Determine installation directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    let install_dir = home_dir.join(".local/bin");
+    
+    // Create installation directory if it doesn't exist
+    CommandHelpers::with_progress(&format!("Creating installation directory: {}", install_dir.display()), || {
+        fs::create_dir_all(&install_dir)
+            .context(format!("Failed to create directory: {}", install_dir.display()))?;
+        Ok(())
+    })?;
+    
+    // Get the binary path
+    let current_dir = env::current_dir()
+        .context("Failed to get current directory")?;
+    let binary_path = current_dir.join("target/release/CI");
+    
+    if !binary_path.exists() {
+        CommandHelpers::print_error(&format!("Binary not found at: {}", binary_path.display()));
+        return Err(anyhow::anyhow!("Binary not found"));
+    }
+    
+    // Copy binary to installation directory
+    let destination = install_dir.join("CI");
+    CommandHelpers::with_progress(&format!("Installing binary to {}", destination.display()), || {
+        fs::copy(&binary_path, &destination)
+            .context(format!("Failed to copy binary to {}", destination.display()))?;
+        
+        // Make binary executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&destination)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&destination, perms)?;
+        }
+        
+        Ok(())
+    })?;
+    
+    CommandHelpers::print_success("Installation completed successfully");
+    
+    println!();
+    
+    // Step 3: Create symlinks
+    println!("🔗 {} {}", "Step 3/3:".bold(), "Creating symlinks...".yellow());
+    
+    // Create lowercase symlink
+    let lowercase_dest = install_dir.join("ci");
+    CommandHelpers::with_progress("Creating lowercase symlink", || {
+        if lowercase_dest.exists() {
+            std::fs::remove_file(&lowercase_dest)?;
+        }
+        SystemHelpers::create_symlink(&destination, &lowercase_dest)?;
+        Ok(())
+    })?;
+    
+    CommandHelpers::print_success("Symlinks created successfully");
+    
+    // Check if installation directory is in PATH
+    let path_env = env::var("PATH").unwrap_or_default();
+    let install_dir_str = install_dir.to_string_lossy();
+    if !path_env.split(':').any(|p| p == install_dir_str) {
+        CommandHelpers::print_warning(&format!("{} is not in your PATH", install_dir.display()));
+        
+        // Determine shell configuration file
+        let shell_config = if env::var("SHELL").unwrap_or_default().contains("zsh") {
+            home_dir.join(".zshrc")
+        } else if env::var("SHELL").unwrap_or_default().contains("bash") {
+            if cfg!(target_os = "macos") {
+                home_dir.join(".bash_profile")
+            } else {
+                home_dir.join(".bashrc")
+            }
+        } else {
+            home_dir.join(".profile")
+        };
+        
+        if shell_config.exists() {
+            println!("You may want to add the following line to your {}:", shell_config.display());
+            println!("export PATH=\"$PATH:{}\"", install_dir.display());
+        } else {
+            println!("Please add {} to your PATH.", install_dir.display());
+        }
+        println!();
+    }
+    
+    CommandHelpers::print_success("🎉 Complete CI setup finished successfully!");
+    println!();
+    println!("You can now use {} or {} to run CI commands", "ci".green().bold(), "CI".green().bold());
+    
+    Ok(())
+}
+
 pub async fn command(subcommand: &str, __config: &Config) -> Result<()> {
     use crate::helpers::CommandHelpers;
     use std::process::Command;

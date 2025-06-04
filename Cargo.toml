@@ -34,3 +34,7 @@ is-terminal = "0.4"
 [[bin]]
 name = "CI"
 path = "src/main.rs"
+
+[[bin]]
+name = "cargo-install-ci"
+path = "src/bin/cargo-install-ci.rs"

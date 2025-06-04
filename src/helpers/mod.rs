@@ -12,6 +12,7 @@ pub mod integration_manager;
 pub mod progress_indicator;
 pub mod api_client;
 pub mod agent_autoload;
+pub mod agent_colors;
 
 // Re-export commonly used helpers
 pub use command::CommandHelpers;
@@ -26,6 +27,7 @@ pub use status_reporter::{StatusReporter, StatusReport};
 pub use progress_indicator::{Spinner, SpinnerResult, with_spinner, with_progress_updates};
 pub use api_client::CIApiClient;
 pub use agent_autoload::{AgentAutoload, AgentActivationConfig};
+pub use agent_colors::{get_agent_color, apply_agent_color, reset_terminal_color, get_color_name};
 
 use colored::*;
 use anyhow::Context;

@@ -11,6 +11,7 @@ use std::process::Command as ProcessCommand;
 use crate::errors::CIError;
 use crate::helpers::path::get_ci_root;
 use crate::helpers::agent_autoload::AgentAutoload;
+use crate::helpers::agent_colors;
 
 pub fn create_command() -> Command {
     Command::new("agent")
@@ -143,6 +144,20 @@ pub fn create_command() -> Command {
                         .help("Create backup of existing global binary")
                 )
         )
+        .subcommand(
+            Command::new("reset-color")
+                .about("Reset terminal background color to default")
+        )
+        .subcommand(
+            Command::new("switch")
+                .about("Switch to a different agent during current session")
+                .arg(
+                    Arg::new("agent_name")
+                        .help("Name of the agent to switch to")
+                        .required(true)
+                        .index(1)
+                )
+        )
 }
 
 pub fn execute(matches: &ArgMatches) -> Result<()> {
@@ -156,6 +171,8 @@ pub fn execute(matches: &ArgMatches) -> Result<()> {
         Some(("load", sub_matches)) => agent_load(sub_matches),
         Some(("template", sub_matches)) => create_agent_from_template(sub_matches),
         Some(("deploy", sub_matches)) => deploy_ci_globally(sub_matches),
+        Some(("reset-color", _)) => agent_reset_color(),
+        Some(("switch", sub_matches)) => agent_switch(sub_matches),
         _ => {
             eprintln!("{}", "No valid subcommand provided".red());
             std::process::exit(1);
@@ -737,6 +754,11 @@ fn agent_load(matches: &ArgMatches) -> Result<()> {
     
     println!("{}", format!("Loading memory for agent: {}", agent_name).cyan().bold());
     
+    // Apply agent-specific background color
+    if let Err(e) = agent_colors::apply_agent_color(agent_name) {
+        println!("{} Warning: Failed to apply background color: {}", "⚠".yellow(), e);
+    }
+    
     // Try to find agent in CI repository first
     if let Ok(ci_repo) = AgentAutoload::get_ci_repository_path() {
         let agent_dir = ci_repo.join("AGENTS").join(agent_name);
@@ -1096,4 +1118,90 @@ fn deploy_ci_globally(matches: &ArgMatches) -> Result<()> {
     println!("This deployment workflow is now integrated into the CI agent protocol.");
     
     Ok(())
+}
+
+fn agent_reset_color() -> Result<()> {
+    println!("{}", "Resetting terminal background color...".cyan().bold());
+    
+    match agent_colors::reset_terminal_color() {
+        Ok(_) => {
+            println!("{} Terminal background color reset to default", "✓".green());
+            Ok(())
+        }
+        Err(e) => {
+            println!("{} Failed to reset terminal color: {}", "✗".red(), e);
+            Err(e)
+        }
+    }
+}
+
+fn agent_switch(matches: &ArgMatches) -> Result<()> {
+    let agent_name = matches.get_one::<String>("agent_name").unwrap();
+    let agents_dir = get_agents_dir()?;
+    let agent_dir = agents_dir.join(agent_name);
+    
+    println!("{}", format!("Switching to agent: {}", agent_name).cyan().bold());
+    
+    // Set window title for agent switching
+    AgentAutoload::set_agent_session_window_title(agent_name, "Switching");
+    
+    if !agent_dir.exists() {
+        AgentAutoload::update_agent_session_title(agent_name, "Switch", "Failed - Not Found");
+        return Err(CIError::NotFound(format!(
+            "Agent '{}' not found. Use 'ci agent list' to see available agents.",
+            agent_name
+        )).into());
+    }
+    
+    // Apply agent-specific background color
+    if let Err(e) = agent_colors::apply_agent_color(agent_name) {
+        println!("{} Warning: Failed to apply background color: {}", "⚠".yellow(), e);
+    }
+    
+    AgentAutoload::update_agent_session_title(agent_name, "Switch", "Loading Profile");
+    
+    // Show brief agent profile for context
+    let readme_path = agent_dir.join("README.md");
+    if readme_path.exists() {
+        if let Ok(content) = fs::read_to_string(&readme_path) {
+            println!();
+            println!("{}", "Agent Profile:".blue().bold());
+            
+            // Show just the title and first few lines
+            for (i, line) in content.lines().enumerate() {
+                if i >= 8 { break; } // Limit to first 8 lines
+                if line.starts_with("# ") {
+                    println!("{}", line.blue().bold());
+                } else if !line.trim().is_empty() && !line.starts_with("---") {
+                    println!("{}", line);
+                }
+            }
+        }
+    }
+    
+    // Update session state
+    update_session_state(agent_name)?;
+    
+    AgentAutoload::update_agent_session_title(agent_name, "Active", "Ready");
+    
+    println!();
+    println!("{} Successfully switched to agent '{}'", "✓".green().bold(), agent_name);
+    println!("{} Agent is ready for interaction", "🤖".blue());
+    println!("{} Use 'ci agent switch <name>' to change agents", "💡".dimmed());
+    
+    Ok(())
+}
+
+/// Update session state for agent switching
+fn update_session_state(agent_name: &str) -> Result<()> {
+    let session_file = std::env::temp_dir().join("ci_current_agent.txt");
+    fs::write(&session_file, agent_name)
+        .context("Failed to update session state")?;
+    Ok(())
+}
+
+/// Get current active agent from session state
+pub fn get_current_agent() -> Option<String> {
+    let session_file = std::env::temp_dir().join("ci_current_agent.txt");
+    fs::read_to_string(&session_file).ok()
 }

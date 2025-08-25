@@ -149,15 +149,55 @@ impl AgentAutoload {
         signature_patterns.iter().any(|pattern| recent_context.contains(pattern))
     }
     
-    /// Get the path to CI repository for agent data
+    /// Get the path to CI repository for agent data with enhanced discovery
     pub fn get_ci_repository_path() -> Result<PathBuf> {
-        // Try multiple possible locations for CI repository
-        let possible_paths = vec![
+        // Check if BRAIN path is already set from main startup sequence
+        if let Ok(brain_path) = std::env::var("CI_BRAIN_PATH") {
+            let path = PathBuf::from(brain_path);
+            if path.exists() && path.join("AGENTS").exists() {
+                return Ok(path);
+            }
+        }
+        
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+        
+        // Enhanced search with parent directory traversal
+        let mut possible_paths = vec![
+            // Primary paths
             PathBuf::from("/Users/joshkornreich/Documents/Projects/CollaborativeIntelligence"),
-            dirs::home_dir().map(|p| p.join("Documents/Projects/CollaborativeIntelligence")).unwrap_or_else(|| PathBuf::from("/tmp")),
-            std::env::current_dir().map(|p| p.join("../CollaborativeIntelligence")).unwrap_or_else(|_| PathBuf::from("/tmp")),
+            home_dir.join("Documents/Projects/CollaborativeIntelligence"),
+            current_dir.clone(),
         ];
         
+        // Add ancestor traversal up to 10 levels
+        let mut ancestor_dir = current_dir.clone();
+        for _ in 0..10 {
+            if let Some(parent) = ancestor_dir.parent() {
+                ancestor_dir = parent.to_path_buf();
+                
+                // Check if ancestor is CollaborativeIntelligence
+                if ancestor_dir.file_name().map_or(false, |name| name == "CollaborativeIntelligence") {
+                    possible_paths.push(ancestor_dir.clone());
+                }
+                
+                // Check for CI subdirectory
+                let ci_subdir = ancestor_dir.join("CollaborativeIntelligence");
+                if ci_subdir.exists() {
+                    possible_paths.push(ci_subdir);
+                }
+                
+                // Check for Documents/Projects pattern
+                let docs_ci = ancestor_dir.join("Documents/Projects/CollaborativeIntelligence");
+                if docs_ci.exists() {
+                    possible_paths.push(docs_ci);
+                }
+            } else {
+                break;
+            }
+        }
+        
+        // Check all potential paths
         for path in possible_paths.iter() {
             if path.exists() && path.join("AGENTS").exists() {
                 return Ok(path.clone());

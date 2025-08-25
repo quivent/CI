@@ -1,0 +1,17 @@
+{
+  "project_name": "MyProject",
+  "ci_version": "0.1.0",
+  "created_at": "2025-08-16T00:00:00Z",
+  "updated_at": "2025-08-16T00:00:00Z",
+  "active_agents": ["Athena", "ProjectArchitect"],
+  "fast_activation": true,
+  "auto_accept": {
+    "agent_load": false,
+    "agent_activate": false,
+    "agents": ["CLIA", "Athena"],
+    "global": false
+  },
+  "metadata": {
+    "description": "Example CI configuration with auto-accept settings"
+  }
+}

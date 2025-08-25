@@ -12,6 +12,7 @@ use crate::errors::CIError;
 use crate::helpers::path::get_ci_root;
 use crate::helpers::agent_autoload::AgentAutoload;
 use crate::helpers::agent_colors;
+use crate::config::ci_config::{CIConfig, AutoAcceptConfig};
 
 pub fn create_command() -> Command {
     Command::new("agent")
@@ -112,6 +113,13 @@ pub fn create_command() -> Command {
                         .required(true)
                         .index(1)
                 )
+                .arg(
+                    Arg::new("free")
+                        .short('f')
+                        .long("free")
+                        .action(clap::ArgAction::SetTrue)
+                        .help("Launch Claude Code with auto-accept enabled (free mode)")
+                )
         )
         .subcommand(
             Command::new("template")
@@ -158,6 +166,16 @@ pub fn create_command() -> Command {
                         .index(1)
                 )
         )
+        .subcommand(
+            Command::new("voice")
+                .about("Launch agent with voice mode (auto-accept enabled)")
+                .arg(
+                    Arg::new("agent_name")
+                        .help("Name of the agent to activate in voice mode")
+                        .required(true)
+                        .index(1)
+                )
+        )
 }
 
 pub fn execute(matches: &ArgMatches) -> Result<()> {
@@ -173,6 +191,7 @@ pub fn execute(matches: &ArgMatches) -> Result<()> {
         Some(("deploy", sub_matches)) => deploy_ci_globally(sub_matches),
         Some(("reset-color", _)) => agent_reset_color(),
         Some(("switch", sub_matches)) => agent_switch(sub_matches),
+        Some(("voice", sub_matches)) => agent_voice(sub_matches),
         _ => {
             eprintln!("{}", "No valid subcommand provided".red());
             std::process::exit(1);
@@ -192,6 +211,41 @@ fn get_agents_dir() -> Result<PathBuf> {
     }
     
     Ok(agents_dir)
+}
+
+fn find_ci_config() -> Result<PathBuf> {
+    // Look for .ci-config.json in current directory first
+    let current_dir = std::env::current_dir()?;
+    let config_path = current_dir.join(".ci-config.json");
+    if config_path.exists() {
+        return Ok(config_path);
+    }
+    
+    // Look in parent directories
+    let mut dir = current_dir.parent();
+    while let Some(parent) = dir {
+        let config_path = parent.join(".ci-config.json");
+        if config_path.exists() {
+            return Ok(config_path);
+        }
+        dir = parent.parent();
+    }
+    
+    // Look in home directory
+    if let Some(home_dir) = dirs::home_dir() {
+        let config_path = home_dir.join(".ci-config.json");
+        if config_path.exists() {
+            return Ok(config_path);
+        }
+    }
+    
+    Err(CIError::NotFound("No .ci-config.json found".to_string()).into())
+}
+
+fn load_ci_config(path: &Path) -> Result<CIConfig> {
+    let content = fs::read_to_string(path)?;
+    let config: CIConfig = serde_json::from_str(&content)?;
+    Ok(config)
 }
 
 fn get_project_config() -> Result<Value> {
@@ -751,8 +805,25 @@ fn agent_activate(matches: &ArgMatches) -> Result<()> {
 
 fn agent_load(matches: &ArgMatches) -> Result<()> {
     let agent_name = matches.get_one::<String>("agent_name").unwrap();
+    let mut free_mode = matches.get_flag("free");
+    
+    // Check configuration for auto-accept settings
+    if !free_mode {
+        if let Ok(config_path) = find_ci_config() {
+            if let Ok(config) = load_ci_config(&config_path) {
+                if config.auto_accept.should_auto_accept(agent_name, "load") {
+                    free_mode = true;
+                    println!("{} Auto-accept enabled by configuration", "⚙️".blue());
+                }
+            }
+        }
+    }
     
     println!("{}", format!("Loading memory for agent: {}", agent_name).cyan().bold());
+    
+    if free_mode {
+        println!("{} Free mode enabled - will launch with auto-accept", "🚀".green());
+    }
     
     // Apply agent-specific background color
     if let Err(e) = agent_colors::apply_agent_color(agent_name) {
@@ -766,7 +837,7 @@ fn agent_load(matches: &ArgMatches) -> Result<()> {
             println!("{} Found agent in CI repository: {}", "✓".green(), agent_dir.display());
             match load_agent_memory_from_ci(&agent_dir) {
                 Ok(memory_content) => {
-                    display_loaded_agent_memory(agent_name, &memory_content);
+                    display_loaded_agent_memory_with_mode(agent_name, &memory_content, free_mode);
                     return Ok(());
                 }
                 Err(e) => {
@@ -783,7 +854,7 @@ fn agent_load(matches: &ArgMatches) -> Result<()> {
             println!("{} Found agent in local directory: {}", "✓".green(), local_agent_dir.display());
             match load_agent_memory_from_ci(&local_agent_dir) {
                 Ok(memory_content) => {
-                    display_loaded_agent_memory(agent_name, &memory_content);
+                    display_loaded_agent_memory_with_mode(agent_name, &memory_content, free_mode);
                     return Ok(());
                 }
                 Err(e) => {
@@ -796,7 +867,7 @@ fn agent_load(matches: &ArgMatches) -> Result<()> {
     // If still not found, create a virtual agent memory template
     println!("{} Agent not found, creating virtual memory template", "⚠".yellow());
     let virtual_memory = create_virtual_agent_memory(agent_name);
-    display_loaded_agent_memory(agent_name, &virtual_memory);
+    display_loaded_agent_memory_with_mode(agent_name, &virtual_memory, free_mode);
     
     Ok(())
 }
@@ -894,8 +965,16 @@ This virtual agent memory can be customized by creating:
 }
 
 fn display_loaded_agent_memory(agent_name: &str, memory_content: &str) {
+    display_loaded_agent_memory_with_mode(agent_name, memory_content, false);
+}
+
+fn display_loaded_agent_memory_with_mode(agent_name: &str, memory_content: &str, free_mode: bool) {
     println!("{}", "=".repeat(60).cyan());
-    println!("{}", format!("🧠 Agent Memory Loaded: {}", agent_name).cyan().bold());
+    if free_mode {
+        println!("{}", format!("🧠 Agent Memory Loaded: {} [FREE MODE]", agent_name).cyan().bold());
+    } else {
+        println!("{}", format!("🧠 Agent Memory Loaded: {}", agent_name).cyan().bold());
+    }
     println!("{}", "=".repeat(60).cyan());
     println!();
     
@@ -917,22 +996,39 @@ fn display_loaded_agent_memory(agent_name: &str, memory_content: &str) {
     println!();
     println!("{}", "=".repeat(60).cyan());
     println!("{}", format!("Agent {} memory loaded successfully", agent_name).green().bold());
-    println!("{}", "You can now interact with this agent using the signature protocol.".dimmed());
+    if free_mode {
+        println!("{}", "FREE MODE: Auto-accept enabled for all Claude Code prompts".yellow().bold());
+    } else {
+        println!("{}", "You can now interact with this agent using the signature protocol.".dimmed());
+    }
     println!("{}", "=".repeat(60).cyan());
     
     // Offer to launch Claude Code
-    launch_claude_code_with_agent(agent_name, memory_content);
+    launch_claude_code_with_agent(agent_name, memory_content, free_mode);
 }
 
-fn launch_claude_code_with_agent(agent_name: &str, memory_content: &str) {
+fn launch_claude_code_with_agent(agent_name: &str, memory_content: &str, free_mode: bool) {
     use crate::helpers::CommandHelpers;
     use std::process::Command;
     
-    // Ask user if they want to launch Claude Code
-    if CommandHelpers::prompt_confirmation("Launch Claude Code with this agent now?") {
+    // Ask user if they want to launch Claude Code (skip if free mode)
+    let should_launch = if free_mode {
+        true // Always launch in free mode
+    } else {
+        // For now, don't prompt in normal mode to avoid hanging
+        // This can be re-enabled when we fix the CommandHelpers issue
+        false
+    };
+    
+    if should_launch {
         // Check if claude CLI is available
         if has_claude_cli() {
-            println!("Launching Claude Code with {}...", agent_name.cyan().bold());
+            if free_mode {
+                println!("Launching Claude Code in FREE mode with {}...", agent_name.cyan().bold());
+                println!("{} Permissions will be bypassed for streamlined workflow", "⚡".yellow());
+            } else {
+                println!("Launching Claude Code with {}...", agent_name.cyan().bold());
+            }
             
             // Create a temporary file with the memory content
             let temp_dir = std::env::temp_dir();
@@ -940,16 +1036,50 @@ fn launch_claude_code_with_agent(agent_name: &str, memory_content: &str) {
             
             match std::fs::write(&temp_file, memory_content) {
                 Ok(_) => {
-                    let status = Command::new("cat")
-                        .arg(&temp_file)
-                        .stdout(std::process::Stdio::piped())
-                        .spawn()
-                        .and_then(|output| {
-                            Command::new("claude")
-                                .arg("code")
-                                .stdin(output.stdout.unwrap())
-                                .status()
-                        });
+                    let status = if free_mode {
+                        // Launch with auto-accept in free mode
+                        Command::new("cat")
+                            .arg(&temp_file)
+                            .stdout(std::process::Stdio::piped())
+                            .spawn()
+                            .and_then(|output| {
+                                let mut cmd = Command::new("claude");
+                                cmd.arg("code")
+                                   .arg("--dangerously-skip-permissions")
+                                   .stdin(output.stdout.unwrap());
+                                
+                                // Pass through BRAIN environment variables
+                                if let Ok(brain_path) = std::env::var("CI_BRAIN_PATH") {
+                                    cmd.env("CI_BRAIN_PATH", brain_path);
+                                }
+                                if let Ok(brain_available) = std::env::var("CI_BRAIN_AVAILABLE") {
+                                    cmd.env("CI_BRAIN_AVAILABLE", brain_available);
+                                }
+                                
+                                cmd.status()
+                            })
+                    } else {
+                        // Normal launch without auto-accept
+                        Command::new("cat")
+                            .arg(&temp_file)
+                            .stdout(std::process::Stdio::piped())
+                            .spawn()
+                            .and_then(|output| {
+                                let mut cmd = Command::new("claude");
+                                cmd.arg("code")
+                                   .stdin(output.stdout.unwrap());
+                                
+                                // Pass through BRAIN environment variables
+                                if let Ok(brain_path) = std::env::var("CI_BRAIN_PATH") {
+                                    cmd.env("CI_BRAIN_PATH", brain_path);
+                                }
+                                if let Ok(brain_available) = std::env::var("CI_BRAIN_AVAILABLE") {
+                                    cmd.env("CI_BRAIN_AVAILABLE", brain_available);
+                                }
+                                
+                                cmd.status()
+                            })
+                    };
                         
                     match status {
                         Ok(exit_status) => {
@@ -1204,4 +1334,150 @@ fn update_session_state(agent_name: &str) -> Result<()> {
 pub fn get_current_agent() -> Option<String> {
     let session_file = std::env::temp_dir().join("ci_current_agent.txt");
     fs::read_to_string(&session_file).ok()
+}
+
+/// Voice command - Launch agent with auto-accept enabled
+fn agent_voice(matches: &ArgMatches) -> Result<()> {
+    let agent_name = matches.get_one::<String>("agent_name").unwrap();
+    
+    println!("{}", "🎙️ Voice Mode Activation".cyan().bold());
+    println!("{}", "=".repeat(40).cyan());
+    println!();
+    println!("{} Launching {} in voice mode with auto-accept enabled", "🚀".green(), agent_name.bold());
+    println!("{} All permission prompts will be bypassed", "⚡".yellow());
+    println!();
+    
+    // Apply agent-specific background color
+    if let Err(e) = agent_colors::apply_agent_color(agent_name) {
+        println!("{} Warning: Failed to apply background color: {}", "⚠".yellow(), e);
+    }
+    
+    // Set window title for voice mode
+    AgentAutoload::set_agent_session_window_title(agent_name, "Voice Mode");
+    
+    // Try to find agent in CI repository first
+    if let Ok(ci_repo) = AgentAutoload::get_ci_repository_path() {
+        let agent_dir = ci_repo.join("AGENTS").join(agent_name);
+        if agent_dir.exists() {
+            println!("{} Found agent in CI repository", "✓".green());
+            match load_agent_memory_from_ci(&agent_dir) {
+                Ok(memory_content) => {
+                    // Display agent memory in voice mode
+                    display_voice_mode_agent_memory(agent_name, &memory_content);
+                    // Launch directly with auto-accept, no prompts
+                    launch_claude_code_voice_mode(agent_name, &memory_content);
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("{} Failed to load from CI repository: {}", "⚠".yellow(), e);
+                }
+            }
+        }
+    }
+    
+    // If not found in CI repository, try local AGENTS directory
+    if let Ok(ci_root) = crate::helpers::path::get_ci_root() {
+        let local_agent_dir = ci_root.join("AGENTS").join(agent_name);
+        if local_agent_dir.exists() {
+            println!("{} Found agent in local directory", "✓".green());
+            match load_agent_memory_from_ci(&local_agent_dir) {
+                Ok(memory_content) => {
+                    display_voice_mode_agent_memory(agent_name, &memory_content);
+                    launch_claude_code_voice_mode(agent_name, &memory_content);
+                    return Ok(());
+                }
+                Err(e) => {
+                    println!("{} Failed to load from local directory: {}", "⚠".yellow(), e);
+                }
+            }
+        }
+    }
+    
+    // If still not found, create a virtual agent
+    println!("{} Agent not found, creating virtual agent", "⚠".yellow());
+    let virtual_memory = create_virtual_agent_memory(agent_name);
+    display_voice_mode_agent_memory(agent_name, &virtual_memory);
+    launch_claude_code_voice_mode(agent_name, &virtual_memory);
+    
+    Ok(())
+}
+
+fn display_voice_mode_agent_memory(agent_name: &str, memory_content: &str) {
+    println!("{}", "=".repeat(60).cyan());
+    println!("{}", format!("🎙️ VOICE MODE: {} Agent Activated", agent_name).cyan().bold());
+    println!("{}", "=".repeat(60).cyan());
+    println!();
+    
+    // Show brief agent info
+    for line in memory_content.lines().take(20) {
+        if line.starts_with("# ") {
+            println!("{}", line.blue().bold());
+            break;
+        }
+    }
+    
+    println!();
+    println!("{} Voice mode active - Auto-accept enabled", "🎙️".green());
+    println!("{} All Claude Code prompts will be accepted automatically", "⚡".yellow().bold());
+    println!("{}", "=".repeat(60).cyan());
+}
+
+fn launch_claude_code_voice_mode(agent_name: &str, memory_content: &str) {
+    use std::process::Command;
+    
+    // Check if claude CLI is available
+    if !has_claude_cli() {
+        println!("{} Claude CLI not found. Please install it first.", "✗".red());
+        println!("{} Install with: npm install -g @anthropic-ai/claude-cli", "💡".blue());
+        return;
+    }
+    
+    println!("{} Launching Claude Code in VOICE MODE...", "🚀".green().bold());
+    
+    // Create a temporary file with the memory content
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!("ci_voice_{}.md", agent_name));
+    
+    match std::fs::write(&temp_file, memory_content) {
+        Ok(_) => {
+            // Launch with auto-accept directly, no confirmation
+            let status = Command::new("cat")
+                .arg(&temp_file)
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|output| {
+                    let mut cmd = Command::new("claude");
+                    cmd.arg("code")
+                       .arg("--dangerously-skip-permissions")
+                       .stdin(output.stdout.unwrap());
+                    
+                    // Pass through BRAIN environment variables
+                    if let Ok(brain_path) = std::env::var("CI_BRAIN_PATH") {
+                        cmd.env("CI_BRAIN_PATH", brain_path);
+                    }
+                    if let Ok(brain_available) = std::env::var("CI_BRAIN_AVAILABLE") {
+                        cmd.env("CI_BRAIN_AVAILABLE", brain_available);
+                    }
+                    
+                    cmd.status()
+                });
+                
+            match status {
+                Ok(exit_status) => {
+                    if !exit_status.success() {
+                        println!("{} Claude Code exited with a non-zero status", "⚠".yellow());
+                    }
+                }
+                Err(e) => {
+                    println!("{} Failed to launch Claude Code: {}", "✗".red(), e);
+                }
+            }
+            
+            // Clean up temp file
+            let _ = std::fs::remove_file(&temp_file);
+        }
+        Err(e) => {
+            println!("{} Failed to create temporary file: {}", "✗".red(), e);
+        }
+    }
 }

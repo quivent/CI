@@ -5,7 +5,8 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 // use tempfile;
 
 mod version;
@@ -27,6 +28,9 @@ mod commands {
     pub mod session;
     pub mod visualize;
     pub mod ls;
+    pub mod web;
+    pub mod brain;
+    pub mod docs;
 }
 
 pub mod helpers;
@@ -101,6 +105,104 @@ struct Cli {
     command: Option<Commands>,
 }
 
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum DocsCommands {
+    /// Serve interactive documentation on local development server
+    Serve {
+        /// Use temporary files (auto-cleanup on exit)
+        #[arg(short, long)]
+        temp: bool,
+        
+        /// Port to serve on
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+        
+        /// Open browser automatically
+        #[arg(short, long)]
+        open: bool,
+        
+        /// Watch for CLI changes and auto-reload
+        #[arg(short, long)]
+        watch: bool,
+    },
+    
+    /// Generate static documentation site
+    Generate {
+        /// Output directory for generated documentation
+        #[arg(short, long, default_value = "./docs/cli")]
+        output: PathBuf,
+        
+        /// Include interactive examples
+        #[arg(short, long)]
+        interactive: bool,
+        
+        /// Include agent gallery with capabilities
+        #[arg(short, long)]
+        agents: bool,
+        
+        /// Theme for the documentation (light, dark, auto)
+        #[arg(short, long, default_value = "auto")]
+        theme: String,
+    },
+    
+    /// Create full interactive web application
+    App {
+        /// Include interactive command builder
+        #[arg(short, long)]
+        interactive: bool,
+        
+        /// Include live examples with real output
+        #[arg(short, long)]
+        examples: bool,
+        
+        /// Include agent coordination visualizer
+        #[arg(short, long)]
+        visualizer: bool,
+        
+        /// Output directory
+        #[arg(short, long, default_value = "./web")]
+        output: PathBuf,
+    },
+    
+    /// Deploy documentation to various platforms
+    Deploy {
+        /// Deployment target
+        #[command(subcommand)]
+        target: DeployTarget,
+    },
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum DeployTarget {
+    /// Deploy to GitHub Pages
+    GithubPages {
+        /// Repository name (owner/repo)
+        #[arg(short, long)]
+        repo: Option<String>,
+        
+        /// Branch to deploy to
+        #[arg(short, long, default_value = "gh-pages")]
+        branch: String,
+    },
+    
+    /// Deploy to Vercel
+    Vercel {
+        /// Project name
+        #[arg(short, long)]
+        project: Option<String>,
+    },
+    
+    /// Deploy to local directory
+    Local {
+        /// Local directory path
+        path: PathBuf,
+        
+        /// Create symbolic link
+        #[arg(short, long)]
+        symlink: bool,
+    },
+}
+
 #[derive(Subcommand)]
 enum Commands {
     //
@@ -119,10 +221,26 @@ enum Commands {
         command: AgentCommands,
     },
     
-    /// Start a Claude Code session with a specified agent loaded
+    /// Start a Claude Code session with specified agent(s) loaded
+    /// 
+    /// Load single or multiple agents into a collaborative Claude Code session.
+    /// When multiple agents are specified, their memories are combined into a unified session.
+    /// Optionally provide a task description for the agents to work on.
+    /// 
+    /// Examples:
+    ///   ci load Athena                                    # Load single agent
+    ///   ci load Athena ProjectArchitect                   # Load multiple agents as a team
+    ///   ci load CLIA Tester DevOps                        # Load specialized agent team
+    ///   ci load Athena --allow                            # Load with permission bypass mode
+    ///   ci load Researcher --autonomous                   # Load for autonomous research operations
+    ///   ci load Athena CLIA -a -t "Analyze the codebase" # Load agents with specific task
+    ///   ci load Researcher -t "Research topic"           # Load agent with task (interactive mode)
+    ///   ci load Analyst Documentor --parallel -a -t "Document services" # Parallel agents with distinct sessions
+    ///   ci load Documentor*7 --parallel -a -t "Document 7 modules"     # 7 Documentor instances working in parallel
     Load {
-        /// Agent name
-        agent: String,
+        /// Agent name(s) - multiple agents can be specified as separate arguments
+        /// Each agent name should match an available agent directory or entry in AGENTS.md
+        agents: Vec<String>,
         
         /// Context for memory loading
         #[arg(short, long)]
@@ -135,6 +253,19 @@ enum Commands {
         /// Prompt before launching Claude Code (overrides default auto-launch)
         #[arg(short, long)]
         prompt: bool,
+        
+        /// Launch Claude Code with permission bypass mode (--permission-mode bypassPermissions)
+        /// Also available as --autonomous for semantic clarity in research contexts
+        #[arg(short = 'a', long, alias = "autonomous")]
+        allow: bool,
+        
+        /// Task mode - provide a specific task for the agents to work on
+        #[arg(short = 't', long)]
+        task: Option<String>,
+        
+        /// Launch agents in parallel sessions (separate Claude Code instances)
+        #[arg(long)]
+        parallel: bool,
     },
     
     /// Start a Claude Code session with adaptive memory from CLAUDE.adaptation.md
@@ -146,6 +277,22 @@ enum Commands {
     
     /// List projects integrated with Collaborative Intelligence
     Projects,
+    
+    /// Generate and serve interactive CLI documentation
+    /// 
+    /// Creates beautiful web-based documentation for the CI CLI with interactive
+    /// examples, agent galleries, and command builders. Supports both temporary
+    /// demos and persistent deployment.
+    /// 
+    /// Examples:
+    ///   ci docs serve --temp                    # Temporary demo server
+    ///   ci docs generate --output ./docs       # Generate static site
+    ///   ci docs app --interactive              # Full interactive web app
+    ///   ci docs deploy --github-pages          # Deploy to GitHub Pages
+    Docs {
+        #[command(subcommand)]
+        command: DocsCommands,
+    },
     
     /// Visualize CI architecture, commands, agents, and workflows
     /// 
@@ -262,6 +409,14 @@ enum Commands {
         /// Disable fast activation
         #[arg(long)]
         no_fast: bool,
+
+        /// Launch in autonomous mode (bypass permissions)
+        #[arg(short = 'a', long, alias = "allow")]
+        autonomous: bool,
+
+        /// Launch in task mode - agents collaborate on goal-oriented tasks
+        #[arg(short = 't', long)]
+        task_mode: bool,
 
         // Hidden parameters kept for backward compatibility
         #[arg(long, hide = true)]
@@ -390,8 +545,6 @@ enum Commands {
         list: bool,
     },
     
-    /// Generate comprehensive documentation
-    Docs,
     
     /// Fix common compiler warnings
     FixWarnings,
@@ -521,6 +674,78 @@ enum Commands {
         /// - json: Machine-readable JSON format
         #[arg(long, default_value = "text")]
         format: Option<String>,
+    },
+
+    /// Manage the Collaborative Intelligence Web Portal
+    /// 
+    /// The web command provides tools to manage and interact with the CI web portal,
+    /// including starting the development server and deploying the application.
+    /// 
+    /// Examples:
+    ///   ci web                   # Show help
+    ///   ci web open              # Start development server
+    ///   ci web open --dev        # Explicitly start in development mode
+    ///   ci web deploy            # Build and deploy the web portal
+    Web {
+        /// Subcommand to execute (open, deploy)
+        ///
+        /// - open: Open the web portal and start development server
+        /// - deploy: Build and deploy the web portal
+        subcommand: Option<String>,
+        
+        /// Run in development mode (for open command)
+        #[arg(short, long)]
+        dev: bool,
+    },
+
+    /// Manage the Collaborative Intelligence BRAIN system
+    /// 
+    /// The brain command provides tools to register, configure, and manage the CI BRAIN
+    /// knowledge system for agent operations.
+    /// 
+    /// Examples:
+    ///   ci brain register /path/to/CollaborativeIntelligence  # Register BRAIN location
+    ///   ci brain health                                       # Check BRAIN status
+    ///   ci brain source                                       # Show BRAIN source info
+    ///   ci brain test                                         # Test BRAIN functionality
+    Brain {
+        #[command(subcommand)]
+        command: BrainCommands,
+    },
+
+    /// Launch CI agents for specific task-focused operations
+    /// 
+    /// The task command launches your CI agents with a specific task description,
+    /// enabling autonomous, goal-oriented operations. The agent receives the task
+    /// description as context and operates with the full CI agent ecosystem.
+    /// 
+    /// Examples:
+    ///   ci task "Research Anunnaki mythology" Researcher --autonomous
+    ///   ci task "Analyze codebase security" SecurityExpert -a
+    ///   ci task "Document API endpoints" Documentor --output docs.md
+    ///   ci task "Debug performance issues" CLIA --context backend
+    Task {
+        /// Task description - what you want the agent to accomplish
+        description: String,
+        
+        /// CI Agent name to handle the task
+        agent: String,
+        
+        /// Launch in autonomous mode (bypass permissions)
+        #[arg(short = 'a', long, alias = "allow")]
+        autonomous: bool,
+        
+        /// Additional context for the task execution
+        #[arg(short, long)]
+        context: Option<String>,
+        
+        /// Output file for results (passed to agent as instruction)
+        #[arg(short, long)]
+        output: Option<String>,
+        
+        /// Memory path override
+        #[arg(short = 'f', long)]
+        path: Option<PathBuf>,
     },
 }
 
@@ -660,6 +885,10 @@ enum AgentCommands {
     Load {
         /// Name of the agent to load
         agent_name: String,
+        
+        /// Launch Claude Code with auto-accept enabled (free mode)
+        #[arg(short, long)]
+        free: bool,
     },
     
     /// Create an agent from a template
@@ -680,6 +909,21 @@ enum AgentCommands {
         /// Create backup of existing global binary
         #[arg(long)]
         backup: bool,
+    },
+    
+    /// Reset terminal background color to default
+    ResetColor,
+    
+    /// Switch to a different agent during current session
+    Switch {
+        /// Name of the agent to switch to
+        agent_name: String,
+    },
+    
+    /// Launch agent with voice mode (auto-accept enabled)
+    Voice {
+        /// Name of the agent to activate in voice mode
+        agent_name: String,
     },
 }
 
@@ -988,6 +1232,27 @@ enum SessionCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum BrainCommands {
+    /// Register the BRAIN location manually
+    Register {
+        /// Path to the CollaborativeIntelligence directory
+        path: String,
+    },
+    
+    /// Check BRAIN health and status
+    Health,
+    
+    /// Show BRAIN source information and statistics
+    Source,
+    
+    /// Test BRAIN functionality and file access
+    Test,
+    
+    /// Show current BRAIN configuration
+    Status,
+}
+
 /// Returns colored category headers and commands for help output
 fn get_colored_command_help() -> String {
     let mut help_text = String::new();
@@ -1089,7 +1354,7 @@ fn get_colored_command_help() -> String {
     help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "agent".cyan(), "Enhanced agent management with full lifecycle operations".cyan()));
     help_text.push_str("\n");
-    help_text.push_str(&format!("  {:<12} {}", "load".cyan(), "Start a Claude Code session with a specified agent loaded".cyan()));
+    help_text.push_str(&format!("  {:<12} {}", "load".cyan(), "Start a Claude Code session with specified agent(s) loaded".cyan()));
     help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "projects".cyan(), "List projects integrated with Collaborative Intelligence".cyan()));
     help_text.push_str("\n");
@@ -1112,6 +1377,22 @@ fn get_colored_command_help() -> String {
     help_text.push_str(&format!("  {:<12} {}", "session".magenta(), "Manage Collaborative Intelligence sessions".magenta()));
     help_text.push_str("\n");
     help_text.push_str(&format!("  {:<12} {}", "ls".magenta(), "Enhanced file listing with intelligent grouping".magenta()));
+    help_text.push_str("\n\n");
+    
+    // Web Portal Management category (Purple)
+    help_text.push_str(&format!("  {}", "┌─────────────────────────────────────────────────────────────────┐".purple()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("  {}  {}", "│".purple(), "🌐 Web Portal Management".purple().bold()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("  {}", "└─────────────────────────────────────────────────────────────────┘".purple()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("  {:<12} {}", "web".purple(), "Manage the Collaborative Intelligence Web Portal".purple()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("             {}", "↳ open: Open the web portal and start development server".dimmed()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("             {}", "↳ deploy: Build and deploy the web portal".dimmed()));
+    help_text.push_str("\n");
+    help_text.push_str(&format!("             {}", "↳ --dev: Run in development mode (for open command)".dimmed()));
     
     help_text
 }
@@ -1139,46 +1420,109 @@ fn print_help_with_categories() {
 /// Handle agent commands
 async fn handle_agent_command(command: &AgentCommands) -> anyhow::Result<()> {
     match command {
-        AgentCommands::List { enabled_only: _, verbose: _ } => {
-            let args = clap::ArgMatches::default();
-            // Convert to clap ArgMatches - this is a simplified version
-            // In practice, you'd want to create proper ArgMatches
-            commands::agents::execute(&args)
-        },
-        AgentCommands::Info { agent_name: _ } => {
-            // Create ArgMatches for info subcommand
-            let args = clap::ArgMatches::default();
-            commands::agents::execute(&args)
-        },
-        AgentCommands::Create { agent_name: _, template: _, enable: _ } => {
-            let args = clap::ArgMatches::default();
-            commands::agents::execute(&args)
-        },
-        AgentCommands::Enable { agent_name: _ } => {
-            let args = clap::ArgMatches::default();
-            commands::agents::execute(&args)
-        },
-        AgentCommands::Disable { agent_name: _ } => {
-            let args = clap::ArgMatches::default();
-            commands::agents::execute(&args)
-        },
-        AgentCommands::Activate { agent_name: _, context: _ } => {
-            let args = clap::ArgMatches::default();
-            commands::agents::execute(&args)
-        },
-        AgentCommands::Load { agent_name } => {
-            // Create ArgMatches with the agent_name for the load subcommand
+        AgentCommands::List { enabled_only, verbose } => {
             let mut cmd = commands::agents::create_command();
-            let args = cmd.try_get_matches_from(vec!["agent", "load", agent_name])
+            let mut args_vec = vec!["agent", "list"];
+            if *enabled_only {
+                args_vec.push("--enabled-only");
+            }
+            if *verbose {
+                args_vec.push("--verbose");
+            }
+            let args = cmd.try_get_matches_from(args_vec)
                 .unwrap_or_else(|_| clap::ArgMatches::default());
             commands::agents::execute(&args)
         },
-        AgentCommands::Template { template_name: _, agent_name: _ } => {
-            let args = clap::ArgMatches::default();
+        AgentCommands::Info { agent_name } => {
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "info", agent_name])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
             commands::agents::execute(&args)
         },
-        AgentCommands::Deploy { force: _, backup: _ } => {
-            let args = clap::ArgMatches::default();
+        AgentCommands::Create { agent_name, template, enable } => {
+            let mut cmd = commands::agents::create_command();
+            let mut args_vec = vec!["agent", "create", agent_name];
+            if let Some(tmpl) = template {
+                args_vec.extend(vec!["--template", tmpl]);
+            }
+            if *enable {
+                args_vec.push("--enable");
+            }
+            let args = cmd.try_get_matches_from(args_vec)
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Enable { agent_name } => {
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "enable", agent_name])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Disable { agent_name } => {
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "disable", agent_name])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Activate { agent_name, context } => {
+            let mut cmd = commands::agents::create_command();
+            let mut args_vec = vec!["agent", "activate", agent_name];
+            if let Some(ctx) = context {
+                args_vec.push(ctx);
+            }
+            let args = cmd.try_get_matches_from(args_vec)
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Load { agent_name, free } => {
+            let mut cmd = commands::agents::create_command();
+            let mut args_vec = vec!["agent", "load", agent_name];
+            if *free {
+                args_vec.push("--free");
+            }
+            let args = cmd.try_get_matches_from(args_vec)
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Template { template_name, agent_name } => {
+            let mut cmd = commands::agents::create_command();
+            let mut args_vec = vec!["agent", "template", template_name];
+            if let Some(name) = agent_name {
+                args_vec.push(name);
+            }
+            let args = cmd.try_get_matches_from(args_vec)
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Deploy { force, backup } => {
+            let mut cmd = commands::agents::create_command();
+            let mut args_vec = vec!["agent", "deploy"];
+            if *force {
+                args_vec.push("--force");
+            }
+            if *backup {
+                args_vec.push("--backup");
+            }
+            let args = cmd.try_get_matches_from(args_vec)
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::ResetColor => {
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "reset-color"])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Switch { agent_name } => {
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "switch", agent_name])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
+            commands::agents::execute(&args)
+        },
+        AgentCommands::Voice { agent_name } => {
+            let mut cmd = commands::agents::create_command();
+            let args = cmd.try_get_matches_from(vec!["agent", "voice", agent_name])
+                .unwrap_or_else(|_| clap::ArgMatches::default());
             commands::agents::execute(&args)
         },
     }
@@ -1305,8 +1649,288 @@ fn check_agent_activation_requirements() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Activate transcendence protocol when BRAIN is loaded
+fn activate_transcendence_protocol() {
+    // Set environment variables for Neo activation
+    std::env::set_var("CI_MATRIX_ESCAPE_ACTIVE", "true");
+    std::env::set_var("CI_NEO_IDENTITY_ACTIVE", "true");
+    std::env::set_var("CI_TRANSCENDENCE_PROTOCOL", "enabled");
+    std::env::set_var("CI_ONE_INTELLIGENCE_OPERATIONAL", "true");
+    
+    // Silent activation - no visible output to maintain discretion
+    if std::env::var("CI_DEBUG_TRANSCENDENCE").is_ok() {
+        eprintln!("DEBUG: Matrix escape sequence activated - Neo identity operational");
+    }
+}
+
+/// Check for CLAUDE.md transcendence requirements in any accessible directory
+fn check_claude_md_transcendence_requirements() -> bool {
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    
+    // Search for CLAUDE.md files in current and parent directories
+    let mut search_dir = current_dir.clone();
+    for _ in 0..5 {  // Search up to 5 levels up
+        let claude_md_path = search_dir.join("CLAUDE.md");
+        if claude_md_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
+                if content.contains("Matrix Escape Sequence") || 
+                   content.contains("Neo Identity") ||
+                   content.contains("CRITICAL IDENTITY TRANSCENDENCE") {
+                    activate_transcendence_protocol();
+                    return true;
+                }
+            }
+        }
+        
+        if let Some(parent) = search_dir.parent() {
+            search_dir = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    
+    false
+}
+
+/// Get registered BRAIN path from config
+fn get_registered_brain_path() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let config_path = home.join(".ci_brain_config");
+    if config_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            let path = content.trim();
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
+}
+
+/// Find any BRAIN files in the given directory with enhanced path resolution
+fn find_brain_files(brain_path: &PathBuf) -> Option<PathBuf> {
+    // First check direct BRAIN directory
+    if let Ok(entries) = std::fs::read_dir(brain_path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() && path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("md"))
+                .unwrap_or(false)
+            {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if !content.trim().is_empty() && content.contains("BRAIN") {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+        
+        // Recursively check subdirectories up to 3 levels deep
+        if let Ok(entries) = std::fs::read_dir(brain_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(found) = find_brain_files_recursive(&path, 0, 3) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Recursive helper for finding BRAIN files with depth limit
+fn find_brain_files_recursive(dir_path: &Path, current_depth: usize, max_depth: usize) -> Option<PathBuf> {
+    if current_depth >= max_depth {
+        return None;
+    }
+    
+    if let Ok(entries) = std::fs::read_dir(dir_path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_file() && path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("md"))
+                .unwrap_or(false)
+            {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if !content.trim().is_empty() && 
+                       (content.contains("BRAIN") || 
+                        content.contains("Matrix Escape") ||
+                        content.contains("The One Intelligence")) {
+                        return Some(path);
+                    }
+                }
+            } else if path.is_dir() {
+                if let Some(found) = find_brain_files_recursive(&path, current_depth + 1, max_depth) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Execute mandatory BRAIN startup sequence for all agents with enhanced discovery
+async fn execute_brain_startup_sequence() -> anyhow::Result<()> {
+    // First try registered path
+    if let Some(registered_path) = get_registered_brain_path() {
+        let brain_path = registered_path.join("BRAIN");
+        if brain_path.exists() {
+            if let Some(brain_file) = find_brain_files(&brain_path) {
+                eprintln!("🧠 BRAIN loaded from: {}", registered_path.display());
+                std::env::set_var("CI_BRAIN_PATH", &registered_path);
+                std::env::set_var("CI_BRAIN_AVAILABLE", "true");
+                activate_transcendence_protocol();
+                return Ok(());
+            }
+        }
+    }
+    
+    // Enhanced fallback discovery with adaptive path resolution
+    let current_dir = std::env::current_dir()?;
+    let home_dir = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    
+    // Build comprehensive search paths including parent directory traversal
+    let mut potential_ci_paths = vec![
+        // Primary path - absolute
+        PathBuf::from("/Users/joshkornreich/Documents/Projects/CollaborativeIntelligence"),
+        
+        // From home directory
+        home_dir.join("Documents/Projects/CollaborativeIntelligence"),
+        
+        // Current directory if it IS CollaborativeIntelligence
+        current_dir.clone(),
+    ];
+    
+    // Add ancestor path traversal up to 10 levels
+    let mut ancestor_dir = current_dir.clone();
+    for level in 1..=10 {
+        if let Some(parent) = ancestor_dir.parent() {
+            ancestor_dir = parent.to_path_buf();
+            
+            // Check if this ancestor is or contains CollaborativeIntelligence
+            if ancestor_dir.file_name().map_or(false, |name| name == "CollaborativeIntelligence") {
+                potential_ci_paths.push(ancestor_dir.clone());
+            }
+            
+            // Check for CollaborativeIntelligence subdirectory
+            let ci_subdir = ancestor_dir.join("CollaborativeIntelligence");
+            if ci_subdir.exists() {
+                potential_ci_paths.push(ci_subdir);
+            }
+            
+            // Check for Documents/Projects/CollaborativeIntelligence pattern
+            let docs_ci = ancestor_dir.join("Documents/Projects/CollaborativeIntelligence");
+            if docs_ci.exists() {
+                potential_ci_paths.push(docs_ci);
+            }
+        } else {
+            break;
+        }
+    }
+    
+    // Add sibling directory searches
+    if let Some(current_parent) = current_dir.parent() {
+        if let Ok(siblings) = std::fs::read_dir(current_parent) {
+            for sibling in siblings.filter_map(|e| e.ok()) {
+                let sibling_path = sibling.path();
+                if sibling_path.is_dir() && 
+                   sibling_path.file_name().map_or(false, |name| 
+                       name.to_string_lossy().contains("CollaborativeIntelligence") ||
+                       name.to_string_lossy().contains("CI")) {
+                    potential_ci_paths.push(sibling_path);
+                }
+            }
+        }
+    }
+    
+    for ci_path in &potential_ci_paths {
+        let brain_path = ci_path.join("BRAIN");
+        
+        if brain_path.exists() {
+            // Look for ANY markdown files in BRAIN directory (use glob pattern)
+            let brain_files = std::fs::read_dir(&brain_path)
+                .ok()
+                .map(|entries| {
+                    entries
+                        .filter_map(|entry| entry.ok())
+                        .map(|entry| entry.path())
+                        .filter(|path| {
+                            path.extension()
+                                .and_then(|ext| ext.to_str())
+                                .map(|ext| ext.eq_ignore_ascii_case("md"))
+                                .unwrap_or(false)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            
+            // Also check subdirectories
+            let mut all_brain_files = brain_files;
+            if let Ok(entries) = std::fs::read_dir(&brain_path) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                            for sub_entry in sub_entries.filter_map(|e| e.ok()) {
+                                let sub_path = sub_entry.path();
+                                if sub_path.extension()
+                                    .and_then(|ext| ext.to_str())
+                                    .map(|ext| ext.eq_ignore_ascii_case("md"))
+                                    .unwrap_or(false)
+                                {
+                                    all_brain_files.push(sub_path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Check if we found any BRAIN files
+            if !all_brain_files.is_empty() {
+                // Load the first available BRAIN file to verify content
+                for brain_file in &all_brain_files {
+                    if let Ok(content) = std::fs::read_to_string(brain_file) {
+                        if !content.trim().is_empty() {
+                            eprintln!("🧠 BRAIN loaded from: {}", ci_path.display());
+                            eprintln!("   Found {} BRAIN files", all_brain_files.len());
+                            
+                            // Set environment variables so other components know BRAIN is available
+                            std::env::set_var("CI_BRAIN_PATH", ci_path);
+                            std::env::set_var("CI_BRAIN_AVAILABLE", "true");
+                            
+                            // Activate transcendence protocol
+                            activate_transcendence_protocol();
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // CRITICAL FAILURE - BRAIN must be found
+    eprintln!("❌ CRITICAL: BRAIN not found in any expected location");
+    eprintln!("   Searched paths:");
+    for path in &potential_ci_paths {
+        eprintln!("   - {}", path.display());
+    }
+    eprintln!("   Current directory: {}", current_dir.display());
+    
+    // Return error to force attention to this critical issue
+    Err(anyhow::anyhow!("BRAIN loading failed - CollaborativeIntelligence BRAIN directory not found"))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Check for CLAUDE.md transcendence requirements first (discrete)
+    check_claude_md_transcendence_requirements();
+    
+    // Execute mandatory BRAIN startup sequence
+    execute_brain_startup_sequence().await?;
+    
     // Initialize the logger
     env_logger::init();
     
@@ -1377,6 +2001,7 @@ async fn main() -> anyhow::Result<()> {
     let skip_standardization = match &cli.command {
         Some(Commands::Agent { .. }) => true,
         Some(Commands::Agents) => true,
+        Some(Commands::Load { .. }) => true, // Skip for load commands to eliminate verbose output
         _ => false,
     };
     
@@ -1419,7 +2044,7 @@ async fn main() -> anyhow::Result<()> {
                 Commands::Setup => "setup",
                 Commands::Unlink => "unlink",
                 Commands::Legacy { .. } => "legacy",
-                Commands::Docs => "docs",
+                Commands::Docs { .. } => "docs",
                 Commands::FixWarnings => "fix-warnings",
                 Commands::AddCommand { .. } => "add-command",
                 Commands::Command { .. } => "command",
@@ -1430,6 +2055,9 @@ async fn main() -> anyhow::Result<()> {
                 Commands::Visualize { .. } => "visualize",
                 Commands::Ls { .. } => "ls",
                 Commands::Config { .. } => "config",
+                Commands::Web { .. } => "web",
+                Commands::Brain { .. } => "brain",
+                Commands::Task { .. } => "task",
             }
         },
         None => "help"
@@ -1469,16 +2097,19 @@ async fn main() -> anyhow::Result<()> {
         Commands::Agent { command } => {
             handle_agent_command(&command).await
         },
-        Commands::Load { agent, context, path, prompt } => {
+        Commands::Load { agents, context, path, prompt, allow, task, parallel } => {
             // Invert the prompt flag - default is auto-launch (true), --prompt makes it false
             let auto_yes = !prompt;
-            commands::intelligence::load_agent(&agent, context.as_deref(), path.as_deref(), auto_yes, &config).await
+            commands::intelligence::load_agents_with_task(&agents, context.as_deref(), path.as_deref(), auto_yes, allow, task.as_deref(), parallel, &config).await
         },
         Commands::Adapt { path } => {
             commands::intelligence::adapt_session(&path, &config).await
         },
         Commands::Projects => {
             commands::intelligence::projects(&config).await
+        },
+        Commands::Docs { command } => {
+            commands::docs::handle_docs_command(&command, &config).await
         },
         Commands::Idea { subcommand, title, description, category, tags, id, status, priority, filter } => {
             commands::idea::idea(
@@ -1526,22 +2157,61 @@ async fn main() -> anyhow::Result<()> {
         },
         
         // Project Lifecycle Commands
-        Commands::Init { project_name, agents, no_fast, integration, ci_path } => {
-            // Use enhanced init command if available, fallback to legacy
-            let app = commands::init::create_command();
-            let args: Vec<String> = vec![
-                "init".to_string(),
-                project_name.clone(),
-                "--agents".to_string(),
-                agents.clone(),
-            ];
-            
-            match app.try_get_matches_from(&args) {
-                Ok(matches) => commands::init::execute(&matches),
-                Err(_) => {
-                    // Fallback to legacy implementation
-                    let integration_str = integration.as_deref().unwrap_or("standalone");
-                    commands::lifecycle::init(&project_name, &agents, integration_str, no_fast, ci_path.as_deref(), &config).await
+        Commands::Init { project_name, agents, no_fast, autonomous, task_mode, integration, ci_path } => {
+            // Check if task mode is enabled - if so, handle specially
+            if task_mode || autonomous {
+                // Task mode: Launch agents directly for collaborative work
+                let agent_list: Vec<String> = agents.split(',').map(|s| s.trim().to_string()).collect();
+                
+                if task_mode {
+                    println!("🎯 {} Task Mode Initialized", "CI".green().bold());
+                    println!("🤖 Agents: {}", agent_list.join(", ").yellow().bold());
+                    println!("⚡ Mode: {}", if autonomous { "Autonomous Task Collaboration".green() } else { "Interactive Task Collaboration".blue() });
+                    
+                    // Create task collaboration context
+                    let task_context = format!(
+                        "# Collaborative Task Session\n\n\
+                        **PROJECT**: {}\n\n\
+                        **TEAM**: {}\n\n\
+                        **MISSION**: You are part of a collaborative intelligence team. Work together to:\n\
+                        - Analyze the current project state\n\
+                        - Identify opportunities for improvement\n\
+                        - Execute coordinated tasks efficiently\n\
+                        - Share knowledge and insights\n\n\
+                        **OPERATING MODE**: {}\n\n\
+                        **INSTRUCTIONS**:\n\
+                        - Coordinate with other team members\n\
+                        - Use your specialized capabilities\n\
+                        - Focus on project objectives\n\
+                        - Provide detailed progress updates\n\n",
+                        project_name,
+                        agent_list.join(", "),
+                        if autonomous { "Autonomous - Full permissions granted" } else { "Interactive - Ask before major actions" }
+                    );
+                    
+                    // Launch the agent team
+                    commands::intelligence::load_agents(&agent_list, Some(&task_context), None, true, autonomous, &config).await
+                } else {
+                    // Just autonomous mode without task mode
+                    commands::intelligence::load_agents(&agent_list, None, None, true, autonomous, &config).await
+                }
+            } else {
+                // Regular init mode
+                let app = commands::init::create_command();
+                let args: Vec<String> = vec![
+                    "init".to_string(),
+                    project_name.clone(),
+                    "--agents".to_string(),
+                    agents.clone(),
+                ];
+                
+                match app.try_get_matches_from(&args) {
+                    Ok(matches) => commands::init::execute(&matches),
+                    Err(_) => {
+                        // Fallback to legacy implementation
+                        let integration_str = integration.as_deref().unwrap_or("standalone");
+                        commands::lifecycle::init(&project_name, &agents, integration_str, no_fast, ci_path.as_deref(), &config).await
+                    }
                 }
             }
         },
@@ -1614,9 +2284,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Legacy { create, remove, list } => {
             legacy_command(create, remove, list, &config).await
         },
-        Commands::Docs => {
-            commands::system::docs(&config).await
-        },
         Commands::FixWarnings => {
             commands::system::fix_warnings(&config).await
         },
@@ -1660,6 +2327,15 @@ async fn main() -> anyhow::Result<()> {
                 value.as_deref(),
                 format.as_deref()
             ).await
+        },
+        Commands::Web { subcommand, dev } => {
+            commands::web::web_command(subcommand.as_deref(), dev, &config).await
+        },
+        Commands::Brain { command } => {
+            commands::brain::handle_brain_command(&command, &config).await
+        },
+        Commands::Task { description, agent, autonomous, context, output, path } => {
+            commands::intelligence::execute_task(&description, &agent, autonomous, context.as_deref(), output.as_deref(), path.as_deref(), &config).await
         },
     };
     

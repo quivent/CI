@@ -9,6 +9,26 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use chrono;
 
+/// Configuration for auto-accept behavior
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AutoAcceptConfig {
+    /// Enable auto-accept for agent load command
+    #[serde(default)]
+    pub agent_load: bool,
+    
+    /// Enable auto-accept for agent activate command
+    #[serde(default)]
+    pub agent_activate: bool,
+    
+    /// Enable auto-accept for specific agents
+    #[serde(default)]
+    pub agents: Vec<String>,
+    
+    /// Global auto-accept override (use with caution)
+    #[serde(default)]
+    pub global: bool,
+}
+
 /// Represents the configuration for a CI project
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CIConfig {
@@ -30,9 +50,35 @@ pub struct CIConfig {
     /// Whether fast activation is enabled
     pub fast_activation: bool,
     
+    /// Auto-accept configuration for various commands
+    #[serde(default)]
+    pub auto_accept: AutoAcceptConfig,
+    
     /// Custom project metadata (for extensibility)
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+impl AutoAcceptConfig {
+    /// Check if auto-accept should be enabled for a specific agent
+    pub fn should_auto_accept(&self, agent_name: &str, command: &str) -> bool {
+        // Global override takes precedence
+        if self.global {
+            return true;
+        }
+        
+        // Check if specific agent is in auto-accept list
+        if self.agents.iter().any(|a| a.eq_ignore_ascii_case(agent_name)) {
+            return true;
+        }
+        
+        // Check command-specific settings
+        match command {
+            "load" => self.agent_load,
+            "activate" => self.agent_activate,
+            _ => false,
+        }
+    }
 }
 
 impl CIConfig {
@@ -48,6 +94,7 @@ impl CIConfig {
             updated_at: now,
             active_agents: vec!["Athena".to_string(), "ProjectArchitect".to_string()],
             fast_activation: true,
+            auto_accept: AutoAcceptConfig::default(),
             metadata: serde_json::json!({}),
         }
     }
@@ -67,6 +114,7 @@ impl CIConfig {
             updated_at: now,
             active_agents,
             fast_activation,
+            auto_accept: AutoAcceptConfig::default(),
             metadata: serde_json::json!({}),
         }
     }

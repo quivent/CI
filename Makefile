@@ -1,214 +1,194 @@
 # Makefile for CI (Collaborative Intelligence CLI)
-# A Rust-based CLI tool
+# Cross-platform: works on Windows (with Git Bash/MinGW), macOS, Linux
 
-# Project settings
-BINARY_NAME := CI
-CARGO := cargo
-INSTALL_DIR := $(HOME)/.local/bin
-
-# Check if Rust is installed
-RUST_INSTALLED := $(shell command -v cargo 2>/dev/null)
-
-# Build profiles
-.PHONY: all build release debug clean test check fmt lint install uninstall help
-.PHONY: check-rust install-rust stage commit push ship
-
-# Default target
-all: build
-
-# Check if Rust is installed
-check-rust:
-ifndef RUST_INSTALLED
-	$(error Rust is not installed. Run 'make install-rust' to install it)
+# Detect OS
+ifeq ($(OS),Windows_NT)
+    DETECTED_OS := Windows
+    EXE_EXT := .exe
+    INSTALL_DIR := $(USERPROFILE)\.local\bin
+    RUSTUP_INIT := powershell -Command "& {Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile '$$env:TEMP\rustup-init.exe'; Start-Process -FilePath '$$env:TEMP\rustup-init.exe' -ArgumentList '-y' -Wait}"
+    SHELL := cmd.exe
+    MKDIR := if not exist "$(subst /,\,$(INSTALL_DIR))" mkdir "$(subst /,\,$(INSTALL_DIR))"
+    CP := copy
+    RM := del /Q
+    RMDIR := rmdir /S /Q
+else
+    DETECTED_OS := $(shell uname -s)
+    EXE_EXT :=
+    INSTALL_DIR := $(HOME)/.local/bin
+    RUSTUP_INIT := curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    MKDIR := mkdir -p $(INSTALL_DIR)
+    CP := cp
+    RM := rm -f
+    RMDIR := rm -rf
 endif
 
-# Install Rust via rustup
-install-rust:
-	@if command -v cargo >/dev/null 2>&1; then \
-		echo "Rust is already installed:"; \
-		rustc --version; \
-		cargo --version; \
-	else \
-		echo "Installing Rust via rustup..."; \
-		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
-		echo ""; \
-		echo "Rust installed successfully!"; \
-		echo "Please run: source $$HOME/.cargo/env"; \
-		echo "Then run 'make build' again."; \
-	fi
+BINARY_NAME := CI
+CARGO := cargo
 
-# Build in debug mode
-build: check-rust
+.PHONY: all build release debug clean test check fmt lint install uninstall help
+.PHONY: setup install-rust run run-release doc stage commit push ship
+
+# Default: setup everything and build
+all: setup build
+
+# Check and install Rust if needed, then build
+setup:
+ifeq ($(OS),Windows_NT)
+	@where cargo >nul 2>&1 || (echo Installing Rust... && $(RUSTUP_INIT) && echo Please restart your terminal and run 'make' again)
+	@where cargo >nul 2>&1 && cargo build --release || echo Restart terminal to complete Rust installation
+else
+	@command -v cargo >/dev/null 2>&1 || (echo "Installing Rust..." && $(RUSTUP_INIT) && . "$$HOME/.cargo/env")
+	@command -v cargo >/dev/null 2>&1 && cargo build --release || (echo "Run: source $$HOME/.cargo/env && make")
+endif
+
+# Install Rust only
+install-rust:
+ifeq ($(OS),Windows_NT)
+	@where cargo >nul 2>&1 && (echo Rust already installed && cargo --version) || (echo Installing Rust... && $(RUSTUP_INIT))
+else
+	@command -v cargo >/dev/null 2>&1 && echo "Rust already installed" && cargo --version || (echo "Installing Rust..." && $(RUSTUP_INIT))
+endif
+
+# Build debug
+build:
 	$(CARGO) build
 
-# Build in release mode (optimized)
-release: check-rust
+# Build release
+release:
 	$(CARGO) build --release
 
-# Alias for debug build
 debug: build
 
-# Run tests
-test: check-rust
+# Tests
+test:
 	$(CARGO) test
 
-# Run tests with output
-test-verbose: check-rust
+test-verbose:
 	$(CARGO) test -- --nocapture
 
-# Check code without building
-check: check-rust
+check:
 	$(CARGO) check
 
-# Format code
-fmt: check-rust
+# Code quality
+fmt:
 	$(CARGO) fmt
 
-# Check formatting without modifying
-fmt-check: check-rust
+fmt-check:
 	$(CARGO) fmt -- --check
 
-# Run clippy linter
-lint: check-rust
+lint:
 	$(CARGO) clippy -- -D warnings
 
-# Run clippy with all targets
-lint-all: check-rust
+lint-all:
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
-# Clean build artifacts
+# Clean
 clean:
-	@if command -v cargo >/dev/null 2>&1; then \
-		$(CARGO) clean; \
-	else \
-		rm -rf target; \
-	fi
+ifeq ($(OS),Windows_NT)
+	@if exist target $(RMDIR) target
+else
+	@$(RMDIR) target 2>/dev/null || true
+endif
 
-# Install to local bin directory
+# Install binary
 install: release
-	@mkdir -p $(INSTALL_DIR)
-	@cp target/release/$(BINARY_NAME) $(INSTALL_DIR)/
-	@cp target/release/cargo-install-ci $(INSTALL_DIR)/ 2>/dev/null || true
-	@echo "Installed $(BINARY_NAME) to $(INSTALL_DIR)"
+ifeq ($(OS),Windows_NT)
+	@$(MKDIR)
+	@$(CP) target\release\$(BINARY_NAME)$(EXE_EXT) "$(subst /,\,$(INSTALL_DIR))\\"
+	@echo Installed to $(INSTALL_DIR)
+else
+	@$(MKDIR)
+	@$(CP) target/release/$(BINARY_NAME)$(EXE_EXT) $(INSTALL_DIR)/
+	@echo "Installed to $(INSTALL_DIR)"
+endif
 
-# Uninstall from local bin directory
 uninstall:
-	@rm -f $(INSTALL_DIR)/$(BINARY_NAME)
-	@rm -f $(INSTALL_DIR)/cargo-install-ci
-	@echo "Uninstalled $(BINARY_NAME) from $(INSTALL_DIR)"
+ifeq ($(OS),Windows_NT)
+	@$(RM) "$(subst /,\,$(INSTALL_DIR))\$(BINARY_NAME)$(EXE_EXT)" 2>nul || echo Already removed
+else
+	@$(RM) $(INSTALL_DIR)/$(BINARY_NAME)$(EXE_EXT)
+	@echo "Uninstalled from $(INSTALL_DIR)"
+endif
 
-# Run the CLI (debug build)
-run: check-rust
+# Run
+run:
 	$(CARGO) run
 
-# Run the CLI with arguments (use: make run-args ARGS="your args here")
-run-args: check-rust
+run-args:
 	$(CARGO) run -- $(ARGS)
 
-# Run the CLI (release build)
-run-release: check-rust
+run-release:
 	$(CARGO) run --release
 
-# Build documentation
-doc: check-rust
+# Docs
+doc:
 	$(CARGO) doc --no-deps
 
-# Open documentation in browser
-doc-open: check-rust
+doc-open:
 	$(CARGO) doc --no-deps --open
 
-# Update dependencies
-update: check-rust
+# Dependencies
+update:
 	$(CARGO) update
 
-# Show dependency tree
-deps: check-rust
+deps:
 	$(CARGO) tree
 
-# Full CI check (format, lint, test)
+# Workflows
 ci: fmt-check lint test
 
-# Development workflow: format, check, build
 dev: fmt check build
 
-# Git: stage all changes
+# Git operations
 stage:
 	git add -A
-	@echo "Staged all changes"
-	@git status --short
+	git status --short
 
-# Git: commit with message (use: make commit MSG="your message")
-commit: stage
-	@if [ -z "$(MSG)" ]; then \
-		echo "Error: Please provide a commit message with MSG=\"your message\""; \
-		exit 1; \
-	fi
+commit:
+ifeq ($(MSG),)
+	@echo "Usage: make commit MSG=\"your message\""
+else
+	git add -A
 	git commit -m "$(MSG)"
+endif
 
-# Git: push to origin
 push:
-	git push origin $$(git branch --show-current)
+	git push
 
-# Git: stage, commit, and push (use: make ship MSG="your message")
-ship: commit push
-	@echo "Changes shipped to GitHub"
+ship:
+ifeq ($(MSG),)
+	@echo "Usage: make ship MSG=\"your message\""
+else
+	git add -A
+	git commit -m "$(MSG)"
+	git push
+endif
 
-# Setup: install Rust and build
-setup: install-rust
-	@if command -v cargo >/dev/null 2>&1; then \
-		$(CARGO) build --release; \
-	else \
-		echo "Please run 'source $$HOME/.cargo/env' and then 'make build'"; \
-	fi
-
-# Help
 help:
-	@echo "CI (Collaborative Intelligence CLI) - Build Commands"
-	@echo ""
-	@echo "Usage: make [target]"
-	@echo ""
-	@echo "Setup (run first if Rust is not installed):"
-	@echo "  install-rust Install Rust via rustup"
-	@echo "  setup        Install Rust and build the project"
-	@echo ""
-	@echo "Build targets:"
-	@echo "  build        Build in debug mode (default)"
-	@echo "  release      Build in release mode (optimized)"
-	@echo "  debug        Alias for build"
-	@echo "  clean        Remove build artifacts"
-	@echo ""
-	@echo "Testing:"
-	@echo "  test         Run tests"
-	@echo "  test-verbose Run tests with output"
-	@echo "  check        Check code without building"
-	@echo ""
-	@echo "Code quality:"
-	@echo "  fmt          Format code"
-	@echo "  fmt-check    Check formatting"
-	@echo "  lint         Run clippy linter"
-	@echo "  lint-all     Run clippy on all targets"
-	@echo ""
-	@echo "Installation:"
-	@echo "  install      Build release and install to ~/.local/bin"
-	@echo "  uninstall    Remove from ~/.local/bin"
-	@echo ""
-	@echo "Running:"
-	@echo "  run          Run in debug mode"
-	@echo "  run-args     Run with args (ARGS=\"...\")"
-	@echo "  run-release  Run in release mode"
-	@echo ""
-	@echo "Documentation:"
-	@echo "  doc          Build documentation"
-	@echo "  doc-open     Build and open documentation"
-	@echo ""
-	@echo "Git:"
-	@echo "  stage        Stage all changes"
-	@echo "  commit       Stage and commit (MSG=\"...\")"
-	@echo "  push         Push to origin"
-	@echo "  ship         Stage, commit, push (MSG=\"...\")"
-	@echo ""
-	@echo "Other:"
-	@echo "  update       Update dependencies"
-	@echo "  deps         Show dependency tree"
-	@echo "  ci           Full CI check (fmt, lint, test)"
-	@echo "  dev          Dev workflow (fmt, check, build)"
+	@echo CI Build System - Works on Windows, macOS, Linux
+	@echo.
+	@echo Usage: make [target]
+	@echo.
+	@echo FIRST TIME SETUP:
+	@echo   make          Install Rust if needed + build release
+	@echo   make setup    Same as above
+	@echo.
+	@echo BUILD:
+	@echo   make build    Debug build
+	@echo   make release  Release build
+	@echo   make clean    Remove build artifacts
+	@echo.
+	@echo TEST:
+	@echo   make test     Run tests
+	@echo   make check    Check without building
+	@echo   make lint     Run clippy
+	@echo   make ci       Full CI (fmt + lint + test)
+	@echo.
+	@echo INSTALL:
+	@echo   make install    Install to ~/.local/bin
+	@echo   make uninstall  Remove installation
+	@echo.
+	@echo GIT:
+	@echo   make commit MSG="msg"  Stage + commit
+	@echo   make ship MSG="msg"    Stage + commit + push

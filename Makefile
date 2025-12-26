@@ -6,7 +6,7 @@ ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
     EXE_EXT := .exe
     INSTALL_DIR := $(USERPROFILE)\.local\bin
-    RUSTUP_INIT := powershell -Command "& {Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile '$$env:TEMP\rustup-init.exe'; Start-Process -FilePath '$$env:TEMP\rustup-init.exe' -ArgumentList '-y' -Wait}"
+    RUSTUP_INIT := powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile '$(TEMP)\rustup-init.exe'; Start-Process -FilePath '$(TEMP)\rustup-init.exe' -ArgumentList '-y' -Wait"
     SHELL := cmd.exe
     MKDIR := if not exist "$(subst /,\,$(INSTALL_DIR))" mkdir "$(subst /,\,$(INSTALL_DIR))"
     CP := copy

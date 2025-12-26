@@ -32,7 +32,8 @@ function Install-Rust {
 
         # Download and run rustup-init.exe
         $rustupUrl = "https://win.rustup.rs/x86_64"
-        $rustupInit = "$env:TEMP\rustup-init.exe"
+        $tempDir = [System.IO.Path]::GetTempPath()
+        $rustupInit = Join-Path $tempDir "rustup-init.exe"
 
         Invoke-WebRequest -Uri $rustupUrl -OutFile $rustupInit
         Start-Process -FilePath $rustupInit -ArgumentList "-y" -Wait -NoNewWindow
@@ -123,11 +124,13 @@ function Invoke-Install {
 
     Write-Host "Installed $BINARY_NAME to $INSTALL_DIR" -ForegroundColor Green
 
-    # Check if INSTALL_DIR is in PATH
-    if ($env:PATH -notlike "*$INSTALL_DIR*") {
-        Write-Host ""
-        Write-Host "Note: Add $INSTALL_DIR to your PATH:" -ForegroundColor Yellow
-        Write-Host '  [Environment]::SetEnvironmentVariable("PATH", "$env:PATH;' + $INSTALL_DIR + '", "User")'
+    # Add to PATH if not already there
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath -notlike "*$INSTALL_DIR*") {
+        [Environment]::SetEnvironmentVariable("PATH", "$userPath;$INSTALL_DIR", "User")
+        $env:PATH = "$env:PATH;$INSTALL_DIR"
+        Write-Host "Added $INSTALL_DIR to PATH" -ForegroundColor Green
+        Write-Host "Restart your terminal or run: `$env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'User')" -ForegroundColor Yellow
     }
 }
 

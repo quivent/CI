@@ -21,6 +21,7 @@ if "%TARGET%"=="build" goto :build
 if "%TARGET%"=="release" goto :release
 if "%TARGET%"=="test" goto :test
 if "%TARGET%"=="clean" goto :clean
+if "%TARGET%"=="install" goto :install
 if "%TARGET%"=="install-rust" goto :install_rust
 if "%TARGET%"=="help" goto :help
 
@@ -58,6 +59,16 @@ if exist target rmdir /s /q target
 echo Cleaned.
 exit /b 0
 
+:install
+call :check_rust
+cargo build --release
+if not exist "%USERPROFILE%\.local\bin" mkdir "%USERPROFILE%\.local\bin"
+copy /Y target\release\CI.exe "%USERPROFILE%\.local\bin\"
+echo Installed CI to %USERPROFILE%\.local\bin
+:: Add to PATH
+powershell -NoProfile -Command "$p=[Environment]::GetEnvironmentVariable('PATH','User'); if($p -notlike '*\.local\bin*'){[Environment]::SetEnvironmentVariable('PATH',\"$p;%USERPROFILE%\.local\bin\",'User'); Write-Host 'Added to PATH - restart terminal'}"
+exit /b 0
+
 :install_rust
 where cargo >nul 2>&1
 if %errorlevel%==0 (
@@ -66,7 +77,7 @@ if %errorlevel%==0 (
     exit /b 0
 )
 echo Installing Rust...
-powershell -Command "& {Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile '$env:TEMP\rustup-init.exe'; Start-Process -FilePath '$env:TEMP\rustup-init.exe' -ArgumentList '-y' -Wait}"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://win.rustup.rs/x86_64' -OutFile '%TEMP%\rustup-init.exe'; Start-Process -FilePath '%TEMP%\rustup-init.exe' -ArgumentList '-y' -Wait"
 exit /b 0
 
 :check_rust
@@ -85,10 +96,7 @@ echo   build               - Debug build
 echo   release             - Release build
 echo   test                - Run tests
 echo   clean               - Remove build artifacts
+echo   install             - Build + install CI to PATH
 echo   install-rust        - Install Rust only
 echo   help                - Show this help
-echo.
-echo For full functionality, install GNU Make:
-echo   winget install GnuWin32.Make
-echo   -or- choco install make
 exit /b 0

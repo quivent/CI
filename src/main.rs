@@ -526,7 +526,20 @@ enum Commands {
     
     /// Build, install and create symlinks in one command
     Setup,
-    
+
+    /// Set CI configuration (e.g., CI_PATH)
+    ///
+    /// Examples:
+    ///   ci set path              # Set CI_PATH to current directory
+    ///   ci set path /some/path   # Set CI_PATH to specified path
+    Set {
+        /// What to set (path)
+        key: String,
+
+        /// Value to set (optional, defaults to current directory for path)
+        value: Option<String>,
+    },
+
     /// Remove symlinks to the CI binary from system paths
     Unlink,
     
@@ -2042,6 +2055,7 @@ async fn main() -> anyhow::Result<()> {
                 Commands::Install => "install",
                 Commands::Link => "link",
                 Commands::Setup => "setup",
+                Commands::Set { .. } => "set",
                 Commands::Unlink => "unlink",
                 Commands::Legacy { .. } => "legacy",
                 Commands::Docs { .. } => "docs",
@@ -2277,6 +2291,9 @@ async fn main() -> anyhow::Result<()> {
         },
         Commands::Setup => {
             commands::system::setup(&config).await
+        },
+        Commands::Set { key, value } => {
+            commands::system::set_config(&key, value.as_deref()).await
         },
         Commands::Unlink => {
             commands::system::unlink(&config).await

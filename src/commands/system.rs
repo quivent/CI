@@ -1332,6 +1332,125 @@ Let's begin by selecting a command to edit.
             println!("  {}", "ci command list".yellow());
         }
     }
-    
+
     Ok(())
+}
+
+/// Set CI configuration values (e.g., CI_PATH)
+pub async fn set_config(key: &str, value: Option<&str>) -> Result<()> {
+    use std::fs;
+    use std::env;
+
+    match key.to_lowercase().as_str() {
+        "path" => {
+            let path = match value {
+                Some(v) => std::path::PathBuf::from(v),
+                None => env::current_dir().context("Failed to get current directory")?,
+            };
+
+            let path = path.canonicalize().unwrap_or(path);
+
+            if !path.exists() {
+                return Err(anyhow::anyhow!("Path does not exist: {}", path.display()));
+            }
+
+            CommandHelpers::print_command_header("Set CI_PATH", "⚙️", "Configuration", "blue");
+
+            println!("Setting CI_PATH to: {}", path.display().to_string().cyan());
+
+            // Determine shell config file based on OS
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+
+            #[cfg(windows)]
+            {
+                // On Windows, set environment variable permanently
+                let path_str = path.display().to_string();
+                let output = std::process::Command::new("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        &format!(
+                            "[Environment]::SetEnvironmentVariable('CI_PATH', '{}', 'User')",
+                            path_str
+                        ),
+                    ])
+                    .output()
+                    .context("Failed to set environment variable")?;
+
+                if !output.status.success() {
+                    return Err(anyhow::anyhow!(
+                        "Failed to set CI_PATH: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+
+                // Set for current process
+                env::set_var("CI_PATH", &path);
+
+                CommandHelpers::print_success("CI_PATH set successfully");
+                println!("\n{}", "Restart your terminal for changes to take effect.".yellow());
+            }
+
+            #[cfg(not(windows))]
+            {
+                // Determine which shell config to use
+                let shell = env::var("SHELL").unwrap_or_default();
+                let config_file = if shell.contains("zsh") {
+                    home.join(".zshrc")
+                } else if shell.contains("bash") {
+                    if home.join(".bash_profile").exists() {
+                        home.join(".bash_profile")
+                    } else {
+                        home.join(".bashrc")
+                    }
+                } else {
+                    home.join(".profile")
+                };
+
+                let export_line = format!("export CI_PATH=\"{}\"", path.display());
+
+                // Read existing config
+                let config_content = fs::read_to_string(&config_file).unwrap_or_default();
+
+                // Check if CI_PATH is already set
+                let mut new_content = String::new();
+                let mut found = false;
+
+                for line in config_content.lines() {
+                    if line.starts_with("export CI_PATH=") {
+                        new_content.push_str(&export_line);
+                        found = true;
+                    } else {
+                        new_content.push_str(line);
+                    }
+                    new_content.push('\n');
+                }
+
+                if !found {
+                    new_content.push_str(&format!("\n# CI - Collaborative Intelligence\n{}\n", export_line));
+                }
+
+                fs::write(&config_file, new_content)
+                    .with_context(|| format!("Failed to write to {}", config_file.display()))?;
+
+                // Set for current process
+                env::set_var("CI_PATH", &path);
+
+                CommandHelpers::print_success(&format!("CI_PATH set in {}", config_file.display()));
+
+                // Print source command
+                println!("\n{}", "Run this to apply now:".yellow());
+                println!("  source {}", config_file.display());
+            }
+
+            Ok(())
+        }
+        _ => {
+            Err(anyhow::anyhow!(
+                "Unknown configuration key: '{}'. Available keys: path",
+                key
+            ))
+        }
+    }
 }

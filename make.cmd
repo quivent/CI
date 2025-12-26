@@ -7,10 +7,10 @@ setlocal enabledelayedexpansion
 set TARGET=%1
 if "%TARGET%"=="" set TARGET=all
 
-:: Check if GNU Make is available
-where make >nul 2>&1
+:: Check if GNU Make (make.exe) is available
+where make.exe >nul 2>&1
 if %errorlevel%==0 (
-    make %*
+    make.exe %*
     exit /b %errorlevel%
 )
 
